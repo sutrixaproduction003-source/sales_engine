@@ -1,0 +1,6 @@
+
+> crm-lead-enrichment-backend@1.0.0 start
+> node src/server.js
+
+CRM backend listening on port 5000
+[0mGET /api/crm/health [32m200[0m 6.866 ms - 89[0m

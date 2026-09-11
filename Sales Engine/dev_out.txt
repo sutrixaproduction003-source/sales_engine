@@ -1,0 +1,21 @@
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env.local, .env
+
+ ✓ Starting...
+ ✓ Ready in 2.4s
+ ○ Compiling /api/leads/discover ...
+ ✓ Compiled /api/leads/discover in 841ms (61 modules)
+<w> [webpack.cache.PackFileCacheStrategy/webpack.FileSystemInfo] Resolving '../../../typescript/lib/typescript' in c:\Users\Soumalya\Desktop\Sutrixa Internship\Sales Engine\Sales Engine\node_modules\next\dist\build for build dependencies doesn't lead to expected result 'C:\Users\Soumalya\Desktop\Sutrixa Internship\Sales Engine\Sales Engine\node_modules\typescript\lib\typescript.js', but to 'c:\Users\Soumalya\Desktop\Sutrixa Internship\Sales Engine\Sales Engine\node_modules\typescript\lib\typescript.js' instead. Resolving dependencies are ignored for this path.
+<w>  at resolve commonjs file ../../../typescript/lib/typescript (expected C:\Users\Soumalya\Desktop\Sutrixa Internship\Sales Engine\Sales Engine\node_modules\typescript\lib\typescript.js)
+<w>  at file dependencies c:\Users\Soumalya\Desktop\Sutrixa Internship\Sales Engine\Sales Engine\node_modules\next\dist\build\load-jsconfig.js
+<w>  at file c:\Users\Soumalya\Desktop\Sutrixa Internship\Sales Engine\Sales Engine\node_modules\next\dist\build\load-jsconfig.js
+<w>  at file dependencies c:\Users\Soumalya\Desktop\Sutrixa Internship\Sales Engine\Sales Engine\node_modules\next\dist\build\webpack-config.js
+<w>  at file c:\Users\Soumalya\Desktop\Sutrixa Internship\Sales Engine\Sales Engine\node_modules\next\dist\build\webpack-config.js
+<w>  at file dependencies c:\Users\Soumalya\Desktop\Sutrixa Internship\Sales Engine\Sales Engine\node_modules\next\dist\build\handle-externals.js
+<w>  at file c:\Users\Soumalya\Desktop\Sutrixa Internship\Sales Engine\Sales Engine\node_modules\next\dist\build\handle-externals.js
+<w>  at file dependencies c:\Users\Soumalya\Desktop\Sutrixa Internship\Sales Engine\Sales Engine\node_modules\next\dist\build\webpack\loaders\next-swc-loader.js
+<w>  at file c:\Users\Soumalya\Desktop\Sutrixa Internship\Sales Engine\Sales Engine\node_modules\next\dist\build\webpack\loaders\next-swc-loader.js
+<w>  at resolve commonjs c:\Users\Soumalya\Desktop\Sutrixa Internship\Sales Engine\Sales Engine\node_modules\next\dist\build\webpack\loaders\next-swc-loader.js
+ POST /api/leads/discover 200 in 3131ms
+[?25h
