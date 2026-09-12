@@ -40,6 +40,10 @@ const limiter = rateLimit({
   },
 });
 
+app.get('/', (req, res) => {
+  res.json({ success: true, message: 'Sales Engine API is running.' });
+});
+
 app.use('/api', limiter);
 app.use('/api', leadRoutes);
 app.use('/api', scraperRoutes);
