@@ -44,7 +44,7 @@ function contactProperties(lead: Lead): Record<string, string> {
     state: lead.state ?? "",
     address: lead.exactAddress ?? lead.location ?? "",
     hotel_name: lead.hotelName ?? lead.company ?? "",
-    lead_category: lead.subCategory ?? lead.category ?? "",
+    lead_category: lead.classification?.toLowerCase() ?? "",
     google_rating: lead.googleRating == null ? "" : String(lead.googleRating),
     total_reviews_count: lead.totalReviewsCount == null ? "" : String(lead.totalReviewsCount),
     sentiment_score: lead.sentimentScore == null ? "" : String(lead.sentimentScore),

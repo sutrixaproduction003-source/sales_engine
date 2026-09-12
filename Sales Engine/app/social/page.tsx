@@ -11,7 +11,7 @@ import {
   Share2,
   Sparkles,
 } from "lucide-react";
-import { Badge, Button, Card, Input, Label, Select, Textarea, cn } from "@/components/ui";
+import { Badge, Button, Card, Input, Label, Select, Textarea } from "@/components/ui";
 
 type Channel = "linkedin" | "facebook" | "instagram" | "makemytrip";
 type ScraperChannel = "facebook" | "instagram" | "makemytripReviews";

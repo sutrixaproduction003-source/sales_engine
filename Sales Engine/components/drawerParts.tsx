@@ -1,7 +1,8 @@
 import { Mail, Phone, Globe, MapPin, Building2, Sparkles, Link2, Star } from "lucide-react";
+import type { ReactNode } from "react";
 import { PipelineLead } from "@/lib/types";
 
-export function DrawerSection({ title, children }: { title: string; children: React.ReactNode }) {
+export function DrawerSection({ title, children }: { title: ReactNode; children: ReactNode }) {
   return (
     <div>
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">{title}</h3>

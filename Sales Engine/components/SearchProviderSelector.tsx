@@ -1,7 +1,7 @@
 import React from "react";
 import { AVAILABLE_PROVIDERS, SEARCH_PROVIDERS } from "@/lib/searchProviders";
 import type { SearchProvider } from "@/lib/searchProviders";
-import { Button, Select } from "@/components/ui";
+import { Select } from "@/components/ui";
 import { Check, AlertCircle } from "lucide-react";
 
 interface SearchProviderSelectorProps {

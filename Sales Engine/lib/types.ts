@@ -348,8 +348,6 @@ export interface DiscoveryLead {
 
   city?: string;
 
-  state?: string;
-
   exactAddress?: string;
 
   googleMapsLink?: string;

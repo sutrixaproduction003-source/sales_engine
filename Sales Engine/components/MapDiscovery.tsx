@@ -6,7 +6,7 @@ import { MapPin, RefreshCw, Search, AlertTriangle, CheckCircle2, LocateFixed, Cr
 import { MapView } from "@/components/MapView";
 import { searchLeads } from "@/lib/leadService";
 import { PROJECTS, getProject } from "@/lib/projects";
-import { STATE_CONFIGS } from "@/lib/states";
+import { STATE_CONFIGS, type LeadState } from "@/lib/states";
 import type { DiscoveryLead } from "@/lib/types";
 
 /**
@@ -251,7 +251,7 @@ export function MapDiscovery() {
                       <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] text-slate-300">
                         {lead.state === "NEW"
                           ? "Discovered"
-                          : (STATE_CONFIGS[lead.state]?.label ?? lead.state)}
+                          : (STATE_CONFIGS[lead.state as LeadState]?.label ?? lead.state ?? "NEW")}
                       </span>
                       {hasCoords ? (
                         <button

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { LeadStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { scoreLead } from "@/lib/scoring";
 
@@ -13,81 +14,76 @@ export const runtime = "nodejs";
  *
  * Returns the updated lead with all scoring fields.
  */
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
-  const id = parseInt(params.id, 10);
+export async function POST(request: Request) {
+  const url = new URL(request.url);
 
-  if (!Number.isFinite(id) || id <= 0) {
-    return NextResponse.json({ error: "Invalid lead ID" }, { status: 400 });
-  }
+  if (!url.pathname.includes("/batch-score")) {
+    const pathId = url.pathname.match(/\/leads\/(?:score\/)?(\d+)(?:\/score)?\/?$/)?.[1];
+    const id = parseInt(url.searchParams.get("id") ?? pathId ?? "", 10);
 
-  try {
-    // Fetch the lead
-    const lead = await prisma.lead.findUnique({ where: { id } });
-    if (!lead) {
-      return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+    if (!Number.isFinite(id) || id <= 0) {
+      return NextResponse.json({ error: "Invalid lead ID" }, { status: 400 });
     }
 
-    // Score the lead
-    const scoring = scoreLead({
-      name: lead.name,
-      jobTitle: lead.jobTitle ?? undefined,
-      company: lead.company ?? undefined,
-      scrapedContext: lead.scrapedContext ?? undefined,
-      industry: lead.industry ?? undefined,
-    });
+    try {
+      // Fetch the lead
+      const lead = await prisma.lead.findUnique({ where: { id } });
+      if (!lead) {
+        return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+      }
 
-    // Update the lead with scoring data
-    const updated = await prisma.lead.update({
-      where: { id },
-      data: {
-        businessType: scoring.businessType,
-        classification: scoring.classification,
-        decisionMakerTier: scoring.decisionMakerTier,
-        relevanceScore: scoring.relevanceScore,
-        intentScore: scoring.intentScore,
-        buyingPowerScore: scoring.buyingPowerScore,
-        intentSignals: JSON.stringify(scoring.intentSignals),
-      },
-    });
+      // Score the lead
+      const scoring = scoreLead({
+        name: lead.name,
+        jobTitle: lead.jobTitle ?? undefined,
+        company: lead.company ?? undefined,
+        scrapedContext: lead.scrapedContext ?? undefined,
+        industry: lead.industry ?? undefined,
+      });
 
-    return NextResponse.json({
-      success: true,
-      lead: updated,
-      scoring,
-    });
-  } catch (err) {
-    console.error("Scoring error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Scoring failed" },
-      { status: 500 }
-    );
+      // Update the lead with scoring data
+      const updated = await prisma.lead.update({
+        where: { id },
+        data: {
+          businessType: scoring.businessType,
+          classification: scoring.classification,
+          decisionMakerTier: scoring.decisionMakerTier,
+          relevanceScore: scoring.relevanceScore,
+          intentScore: scoring.intentScore,
+          buyingPowerScore: scoring.buyingPowerScore,
+          intentSignals: JSON.stringify(scoring.intentSignals),
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        lead: updated,
+        scoring,
+      });
+    } catch (err) {
+      console.error("Scoring error:", err);
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "Scoring failed" },
+        { status: 500 }
+      );
+    }
   }
-}
 
-/**
- * POST /api/leads/batch-score
- *
- * Score all leads or filter by status. Updates all matching leads.
- *
- * Query params:
- *   - status: Filter by lead status (PENDING, SCRAPED, etc.)
- */
-export async function POST(request: Request) {
-  // Check if this is a batch score request
-  const url = new URL(request.url);
-  if (!url.pathname.includes("/batch-score")) {
-    return new NextResponse("Not Found", { status: 404 });
-  }
+  /**
+   * POST /api/leads/batch-score
+   *
+   * Score all leads or filter by status. Updates all matching leads.
+   *
+   * Query params:
+   *   - status: Filter by lead status (PENDING, SCRAPED, etc.)
+   */
 
   const status = url.searchParams.get("status");
 
   try {
     // Fetch leads to score
     const leads = await prisma.lead.findMany({
-      where: status ? { status: status as any } : {},
+      where: status ? { status: status as LeadStatus } : {},
     });
 
     if (leads.length === 0) {

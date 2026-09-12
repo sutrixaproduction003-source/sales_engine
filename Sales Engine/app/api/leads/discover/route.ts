@@ -226,7 +226,6 @@ export async function POST(request: Request) {
       linkedinUrl: item.linkedinUrl ?? "",
       location: item.location ?? "",
       city: item.city ?? "",
-      state: item.state ?? "",
       exactAddress: item.exactAddress ?? "",
       googleMapsLink: item.googleMapsLink ?? "",
       industry: item.industry ?? "",

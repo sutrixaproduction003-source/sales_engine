@@ -119,10 +119,10 @@ export function MapView({
                 pressed: { cursor: "pointer" },
               }}
             >
-              <circle r={6} fill={STATUS_COLORS[lead.state] ?? "#64748b"} stroke="#0b1120" strokeWidth={1.5} />
+              <circle r={6} fill={STATUS_COLORS[lead.state ?? "NEW"] ?? "#64748b"} stroke="#0b1120" strokeWidth={1.5} />
               <circle
                 r={focusId === lead.id ? 15 : 11}
-                fill={STATUS_COLORS[lead.state] ?? "#64748b"}
+                fill={STATUS_COLORS[lead.state ?? "NEW"] ?? "#64748b"}
                 opacity={0.25}
               />
             </Marker>
@@ -220,10 +220,10 @@ export function MapView({
             <span className="text-xs text-slate-500">Pipeline State:</span>
             <span
               className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
-                statusTailwind[selected.state] ?? "border-slate-700 text-slate-400"
+                statusTailwind[selected.state ?? "NEW"] ?? "border-slate-700 text-slate-400"
               }`}
             >
-              {STATUS_LABELS[selected.state] ?? (selected.state === "NEW" ? "Discovered" : selected.state)}
+              {STATUS_LABELS[selected.state ?? "NEW"] ?? (selected.state === "NEW" ? "Discovered" : selected.state ?? "NEW")}
             </span>
           </div>
 

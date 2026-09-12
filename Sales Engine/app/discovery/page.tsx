@@ -25,10 +25,9 @@ import {
   ChevronRight,
   Download,
 } from "lucide-react";
-import { getStats, searchLeads } from "@/lib/leadService";
+import { getStats } from "@/lib/leadService";
 import {
   PROJECTS,
-  SUPPORTED_PROVIDERS,
   type ProviderName,
 } from "@/lib/projects";
 import { SearchProviderSelector, ProviderBadge } from "@/components/SearchProviderSelector";
@@ -51,7 +50,7 @@ import Papa from "papaparse";
  */
 export default function DiscoveryPage() {
   const [projectId, setProjectId] = useState(PROJECTS[0]?.id ?? "");
-  const [provider, setProvider] = useState<ProviderName | "" | SearchProvider>("apollo");
+  const [provider] = useState<ProviderName | "" | SearchProvider>("apollo");
   const [searchProvider, setSearchProvider] = useState<SearchProvider>("apollo");
   const [industry, setIndustry] = useState("");
   const [location, setLocation] = useState("");
@@ -132,7 +131,7 @@ export default function DiscoveryPage() {
 
       const data = await response.json();
 
-      const mappedLeads: DiscoveryLead[] = data.data?.items?.map((item: any) => ({
+      const mappedLeads: DiscoveryLead[] = data.data?.items?.map((item: Record<string, unknown>) => ({
         id: item.id,
         firstName: item.firstName,
         lastName: item.lastName,
@@ -290,7 +289,12 @@ export default function DiscoveryPage() {
         }),
       });
 
-      let data: any = null;
+      let data: {
+        success?: boolean;
+        error?: string;
+        data?: { lead?: Partial<DiscoveryLead>; saved?: boolean };
+        lead?: Partial<DiscoveryLead>;
+      } | null = null;
 
       try {
         data = await response.json();
@@ -359,7 +363,6 @@ export default function DiscoveryPage() {
    * DuckDuckGo results are OSINT and don't have verified contact details
    */
   const canEnrich = ["apollo", "hunter", "prospeo"].includes(searchProvider.toLowerCase());
-  const isApollo = searchProvider.toLowerCase() === "apollo";
 
   return (
     <div className="space-y-5">
@@ -767,7 +770,6 @@ export default function DiscoveryPage() {
                       <div className="flex items-center gap-2">
                         <Button
                           variant="secondary"
-                          size="sm"
                           onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                           disabled={currentPage === 1}
                         >
@@ -778,7 +780,6 @@ export default function DiscoveryPage() {
                         </span>
                         <Button
                           variant="secondary"
-                          size="sm"
                           onClick={() =>
                             setCurrentPage((p) =>
                               Math.min(Math.ceil(result.leads.length / leadsPerPage), p + 1)
@@ -790,7 +791,6 @@ export default function DiscoveryPage() {
                         </Button>
                         <Button
                           variant="ghost"
-                          size="sm"
                           onClick={exportToExcel}
                         >
                           <Download className="h-4 w-4" />

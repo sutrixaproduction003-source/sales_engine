@@ -1,9 +1,7 @@
 import type { Lead } from "@prisma/client";
 
 const APIFY_BASE = "https://api.apify.com/v2";
-const OMNIROUTE_BASE = "https://api.omniroute.ai/v1";
 const INSTANTLY_BASE = "https://app.instantly.ai/api/v1";
-const OMNIROUTE_MODEL = "claude-3-5-haiku";
 
 function truncate(text: string, max: number): string {
   const clean = text.trim();

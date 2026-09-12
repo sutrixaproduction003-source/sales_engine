@@ -13,12 +13,6 @@ interface DuckDuckGoSearchBody {
   page?: number;
 }
 
-interface DuckDuckGoResult {
-  title: string;
-  description: string;
-  url: string;
-}
-
 function buildDuckDuckGoQuery(filters: SearchFilters): string {
   const parts: string[] = [];
 

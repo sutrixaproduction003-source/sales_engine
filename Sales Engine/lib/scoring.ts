@@ -41,8 +41,6 @@ const INTENT_KEYWORDS = {
 // Decision maker keywords
 const DECISION_MAKER_TIER_1 = ['owner', 'founder', 'ceo', 'managing director', 'director', 'gm', 'general manager'];
 const DECISION_MAKER_TIER_2 = ['manager', 'head', 'supervisor', 'coordinator', 'consultant', 'director'];
-const DECISION_MAKER_TIER_3 = ['executive', 'assistant', 'staff', 'representative', 'officer'];
-
 // Luxury/premium keywords for buying power
 const LUXURY_KEYWORDS = ['luxury', 'premium', '5-star', 'five star', 'palace', 'taj', 'oberoi', 'hyatt', 'hilton', 'marriott'];
 const PREMIUM_KEYWORDS = ['boutique', 'heritage', 'high-end', 'upscale'];
@@ -54,7 +52,7 @@ export function scoreLead(input: ScoringInput): ScoringResult {
   const businessType = determineBusinessType(text, input.company);
 
   // 2. Determine Classification
-  const classification = determineClassification(businessType, text);
+  const classification = determineClassification(businessType);
 
   // 3. Determine Decision Maker Tier
   const decisionMakerTier = determineDecisionMakerTier(input.jobTitle);
@@ -93,8 +91,8 @@ function determineBusinessType(text: string, company?: string): BusinessType {
   return BusinessType.OTHER;
 }
 
-function determineClassification(businessType: BusinessType, text: string): Classification {
-  const directCustomerTypes = [
+function determineClassification(businessType: BusinessType): Classification {
+  const directCustomerTypes: BusinessType[] = [
     BusinessType.HOTEL,
     BusinessType.RESORT,
     BusinessType.RESTAURANT,
