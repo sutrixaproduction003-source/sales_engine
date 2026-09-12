@@ -5,6 +5,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const BACKEND_URL =
+    process.env.LEAD_BACKEND_URL ||
     process.env.BACKEND_URL ||
     process.env.NEXT_PUBLIC_BACKEND_URL ||
     "http://localhost:5000";
