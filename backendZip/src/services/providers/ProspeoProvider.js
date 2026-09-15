@@ -147,15 +147,6 @@ class ProspeoProvider extends BaseProvider {
         apiFilters.person_job_title = { include: [jobTitle], match_mode: 'CONTAINS' };
       }
     }
-    // Free-text keyword hints (from selected target categories) — applied to
-    // the person's current company so the search is narrowed to hotel/resort
-    // companies instead of the whole industry.
-    if (filters.keywords?.trim()) {
-      apiFilters.person_current_company = {
-        include: filters.keywords.trim().split(',').map((k) => k.trim()).filter(Boolean),
-        match_mode: 'CONTAINS',
-      };
-    }
 
     const response = await this.client.post('/search-person', {
       page,
