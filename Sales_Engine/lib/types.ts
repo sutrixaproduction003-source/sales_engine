@@ -289,6 +289,9 @@ export interface SearchFilters {
   categories?: string[];
 
   job_title?: string;
+
+  /** Free-text keyword hints derived from selected categories. */
+  keywords?: string;
 }
 
 export type DiscoveryState = PipelineStatus | "NEW";

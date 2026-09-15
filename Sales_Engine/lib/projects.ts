@@ -7,12 +7,19 @@
  * Requirements are generic, data-driven search hints merged into the provider
  * filters (see mergeProjectFilters):
  *  - industry   → default industry filter for the provider search
- *  - categories → selectable target categories (merged into the industry filter)
+ *  - categories → selectable target categories (kept as category ids and used
+ *                 as a hard post-filter; never concatenated into industry)
  *  - jobTitle   → fallback job_title filter when the user does not specify one
  *
  * The project name is never used as a data switch — every project follows the
  * exact same search → normalize → geocode → map pipeline.
  */
+
+import {
+  categorySearchHints,
+  resolveCategoryIds,
+  type SearchCategoryId,
+} from "@/lib/categorySearch";
 
 export interface ProjectRequirements {
   industry?: string;
@@ -104,6 +111,10 @@ export interface MergedFilters {
   location?: string;
   industry?: string;
   job_title?: string;
+  /** Free-text keyword hints derived from selected categories (not industry). */
+  keywords?: string;
+  /** Resolved category ids for hard post-filtering after provider search. */
+  categoryIds?: SearchCategoryId[];
 }
 
 /**
@@ -111,6 +122,11 @@ export interface MergedFilters {
  * filters documented by the provider backend. Purely data-driven — behaves
  * identically for every project (unknown/absent projects simply contribute
  * no requirements).
+ *
+ * Categories are intentionally kept separate and must NEVER be concatenated
+ * into the industry string. They are resolved into provider-friendly search
+ * hints (industry + keywords) and passed back as `categoryIds` so the
+ * discover route can apply a hard post-filter after provider search.
  */
 export function mergeProjectFilters(
   project: ProjectConfig | undefined,
@@ -120,26 +136,42 @@ export function mergeProjectFilters(
 
   if (user.location?.trim()) filters.location = user.location.trim();
 
-  // Project industry + user industry + selected categories, deduplicated.
-  const seen = new Set<string>();
-  const industryParts = [
-    project?.requirements.industry,
-    user.industry,
-    ...(Array.isArray(user.categories) ? user.categories : []),
-  ]
-    .map((part) => part?.trim())
-    .filter((part): part is string => Boolean(part))
-    .filter((part) => {
-      const key = part.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  if (industryParts.length > 0) filters.industry = industryParts.join(", ");
+  // Resolve selected category chips → typed ids
+  const selectedIds = resolveCategoryIds(
+    Array.isArray(user.categories) ? user.categories : []
+  );
+
+  if (selectedIds.length > 0) {
+    // Translate category ids into appropriate provider search hints
+    const hints = categorySearchHints(selectedIds);
+    // Use category-derived industry hint, falling back to project/user industry
+    const industryBase = hints.industry ?? project?.requirements.industry ?? user.industry;
+    if (industryBase?.trim()) filters.industry = industryBase.trim();
+    // Pass category keywords as job-title hint only when no explicit job_title given
+    if (!user.job_title?.trim() && !project?.requirements.jobTitle && hints.keywords) {
+      filters.keywords = hints.keywords;
+    }
+  } else {
+    // No category chips selected — use project industry + user industry only
+    const seen = new Set<string>();
+    const industryParts = [project?.requirements.industry, user.industry]
+      .map((p) => p?.trim())
+      .filter((p): p is string => Boolean(p))
+      .filter((p) => {
+        const key = p.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    if (industryParts.length > 0) filters.industry = industryParts.join(", ");
+  }
 
   // User-specified job title wins; the project requirement is the fallback.
   const jobTitle = user.job_title?.trim() || project?.requirements.jobTitle?.trim() || "";
   if (jobTitle) filters.job_title = jobTitle;
+
+  // Carry resolved ids forward so the discover route can post-filter
+  filters.categoryIds = selectedIds;
 
   return filters;
 }

@@ -3,6 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { PROVIDER_BACKEND_URL } from "@/lib/providerBackend";
 import { getProject, getProjectProvider, mergeProjectFilters } from "@/lib/projects";
 import { GEOCODE_MAX_PER_REQUEST, geocodeEnabled, geocodeLocation } from "@/lib/geocode";
+import {
+  resolveCategoryIds,
+  leadMatchesCategories,
+  type SearchCategoryId,
+} from "@/lib/categorySearch";
 
 export const runtime = "nodejs";
 
@@ -96,11 +101,20 @@ export async function POST(request: Request) {
   const page = typeof body.page === "number" && body.page > 0 ? body.page : 1;
   const project = body.project?.trim() || null;
 
+  // Resolve category ids for hard post-filtering after provider search.
+  const categoryIds: SearchCategoryId[] = Array.isArray(filters.categoryIds)
+    ? filters.categoryIds
+    : [];
+
   // Provider required by POST /api/leads/search: resolved from the project
   // registry (per-project configuration), with an optional explicit request
   // override, falling back to the registry default. Unsupported values are
   // never forwarded — the backend Joi schema would reject them with a 400.
   const provider = getProjectProvider(projectConfig, body.provider);
+
+  // Build the payload for the provider backend. `keywords` is forwarded
+  // as a free-text search hint (never merged into industry).
+  const providerPayload: Record<string, unknown> = { provider, filters, page };
 
   // 1. Forward to the existing provider backend.
   let providerRes: Response;
@@ -108,7 +122,7 @@ export async function POST(request: Request) {
     providerRes = await fetch(`${PROVIDER_BACKEND_URL}/api/leads/search`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider, filters, page }),
+      body: JSON.stringify(providerPayload),
       cache: "no-store",
     });
   } catch {
@@ -133,13 +147,31 @@ export async function POST(request: Request) {
 
   const items = Array.isArray(payload.data?.items) ? payload.data.items : [];
 
+  // HARD CATEGORY FILTER — when a user selects e.g. only "Hotels", any
+  // provider result that is not a hotel property is dropped here. This is
+  // the actual guarantee behind the category chips; provider search is only
+  // a pre-filter and is always noisy.
+  let filteredOut = 0;
+  const kept: NormalizedProviderLead[] = [];
+  if (categoryIds.length > 0) {
+    for (const item of items) {
+      if (leadMatchesCategories(item, categoryIds)) {
+        kept.push(item);
+      } else {
+        filteredOut++;
+      }
+    }
+  } else {
+    kept.push(...items);
+  }
+
   // Geocode real locations that the provider returned without coordinates
   // (budget-capped, cached, rate-limited). Provider-returned coordinates are
   // kept as-is and always win; unresolvable locations stay null — coordinates
   // are never generated or estimated here.
   let geocoded = 0;
   if (geocodeEnabled()) {
-    for (const item of items) {
+    for (const item of kept) {
       if (toCoord(item.latitude) !== null && toCoord(item.longitude) !== null) continue;
       if (geocoded >= GEOCODE_MAX_PER_REQUEST) break;
       if (!item.location?.trim()) continue;
@@ -156,7 +188,7 @@ export async function POST(request: Request) {
   //    an email — items without one stay in the response only (never faked).
   let saved = 0;
   let duplicates = 0;
-  for (const item of items) {
+  for (const item of kept) {
     const email = (item.email ?? "").trim();
     if (!email) continue;
     try {
@@ -200,12 +232,12 @@ export async function POST(request: Request) {
   }
 
   // 3. Attach the real pipeline state for persisted leads.
-  const emails = items.map((i) => (i.email ?? "").trim()).filter(Boolean);
+  const emails = kept.map((i) => (i.email ?? "").trim()).filter(Boolean);
   const rows =
     emails.length > 0 ? await prisma.lead.findMany({ where: { email: { in: emails } } }) : [];
   const byEmail = new Map(rows.map((r) => [r.email.toLowerCase(), r]));
 
-  const leads = items.map((item, idx) => {
+  const leads = kept.map((item, idx) => {
     const key = (item.email ?? "").trim().toLowerCase();
     const row = key ? byEmail.get(key) : undefined;
     return {
@@ -245,5 +277,5 @@ export async function POST(request: Request) {
     };
   });
 
-  return NextResponse.json({ total: leads.length, saved, duplicates, geocoded, leads });
+  return NextResponse.json({ total: leads.length, saved, duplicates, geocoded, filteredOut, leads });
 }
