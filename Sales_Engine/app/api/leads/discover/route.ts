@@ -4,7 +4,6 @@ import { PROVIDER_BACKEND_URL } from "@/lib/providerBackend";
 import { getProject, getProjectProvider, mergeProjectFilters } from "@/lib/projects";
 import { GEOCODE_MAX_PER_REQUEST, geocodeEnabled, geocodeLocation } from "@/lib/geocode";
 import {
-  resolveCategoryIds,
   leadMatchesCategories,
   type SearchCategoryId,
 } from "@/lib/categorySearch";
