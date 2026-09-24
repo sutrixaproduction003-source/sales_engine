@@ -69,9 +69,11 @@ export async function GET(request: Request, { params }: { params: { runId: strin
     startedAt: result.startedAt,
     places: result.places ?? [],
   };
-  if (!run.done) return NextResponse.json(run);
+  // `save=0`: a lookup whose results are attached to existing leads instead.
+  const search = new URL(request.url).searchParams;
+  if (!run.done || search.get("save") === "0") return NextResponse.json(run);
 
-  const projectId = new URL(request.url).searchParams.get("project");
+  const projectId = search.get("project");
   const project = getProject(projectId)?.id ?? null;
 
   try {

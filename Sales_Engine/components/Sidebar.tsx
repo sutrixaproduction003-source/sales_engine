@@ -17,6 +17,7 @@ import {
   Plug,
   ChevronsLeft,
   Share2,
+  UploadCloud,
 } from "lucide-react";
 import { cn } from "@/components/ui";
 
@@ -26,6 +27,7 @@ const groups: { label?: string; items: { href: string; label: string; icon: type
       { href: "/", label: "Overview", icon: LayoutDashboard },
       { href: "/leads", label: "Leads Hub", icon: Users },
       { href: "/discovery", label: "Discovery", icon: Globe },
+      { href: "/import", label: "Sales Nav Import", icon: UploadCloud },
       { href: "/dispatch", label: "Dispatch", icon: Send },
     ],
   },

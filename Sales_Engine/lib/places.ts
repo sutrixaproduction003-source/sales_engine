@@ -17,7 +17,10 @@ export interface ScrapedPlace {
   categories: string[];
   /** The search term (e.g. "hotels") that found this place. */
   searchTerm: string | null;
+  /** Best general inbox (info@, sales@ …). */
   email: string;
+  /** Every public email found on the business website. */
+  emails?: string[];
   phone: string;
   companyWebsite: string;
   exactAddress: string;
@@ -70,8 +73,9 @@ export function startPlacesSearch(params: StartPlacesSearchParams): Promise<Plac
   });
 }
 
-export function pollPlacesSearch(runId: string, project: string): Promise<PlacesRun> {
-  const query = new URLSearchParams({ project });
+/** Poll a scrape. `save: false` returns results without saving them as leads. */
+export function pollPlacesSearch(runId: string, project: string, { save = true } = {}): Promise<PlacesRun> {
+  const query = new URLSearchParams({ project, ...(save ? {} : { save: "0" }) });
   return apiCall<PlacesRun>(`/api/places/search/${encodeURIComponent(runId)}?${query}`);
 }
 

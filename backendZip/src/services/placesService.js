@@ -49,6 +49,40 @@ function buildPlacesInput({ location, searchTerms, maxPlacesPerTerm }) {
 
 const first = (values) => (Array.isArray(values) && values.length ? String(values[0]) : null);
 
+const GENERAL_INBOX =
+  /^(info|contact|contactus|enquiry|enquiries|inquiry|inquiries|sales|marketing|business|hello|office|admin|mail|support|care|corporate|reservations?|bookings?)[\d._-]*@/i;
+const NOT_FOR_SALES = /^(hr|hrd|careers?|jobs?|recruit(ment|ing)?|talent|resume|cv|hiring|noreply|no-reply|donotreply|privacy|legal|abuse|webmaster)[\d._-]*@/i;
+
+const FREE_MAIL = /@(gmail|googlemail|yahoo|ymail|outlook|hotmail|live|rediffmail|icloud|proton|protonmail|zoho)\.[a-z.]+$/i;
+
+function siteDomain(website) {
+  try {
+    return new URL(/^https?:/i.test(website) ? website : `https://${website}`).hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+/** Same domain as the website (or free-mail): websites also list partner firms' addresses. */
+function belongsToBusiness(email, website) {
+  const site = siteDomain(website || '');
+  if (!site) return true;
+  const domain = email.split('@')[1] || '';
+  return domain === site || domain.endsWith(`.${site}`) || site.endsWith(`.${domain}`) || FREE_MAIL.test(email);
+}
+
+/** The business's general inbox (info@, sales@ …), avoiding HR/careers and third-party addresses. */
+function businessEmail(emails, website) {
+  const list = cleanList(emails)
+    .map((e) => e.toLowerCase())
+    .filter((e) => belongsToBusiness(e, website));
+  return (
+    list.find((e) => GENERAL_INBOX.test(e) && !NOT_FOR_SALES.test(e)) ||
+    list.find((e) => !NOT_FOR_SALES.test(e)) ||
+    ''
+  );
+}
+
 const toCoordinate = (value) => {
   const n = typeof value === 'string' ? Number(value) : value;
   return typeof n === 'number' && Number.isFinite(n) ? n : null;
@@ -74,7 +108,10 @@ function normalizePlace(item) {
     industry: item.categoryName || first(item.categories) || '',
     categories: cleanList(item.categories),
     searchTerm: item.searchString || null,
-    email: first(item.emails) || '',
+    email: businessEmail(item.emails, item.website),
+    emails: cleanList(item.emails)
+      .map((e) => e.toLowerCase())
+      .filter((e) => belongsToBusiness(e, item.website)),
     phone: item.phone || item.phoneUnformatted || '',
     companyWebsite: item.website || '',
     exactAddress: item.address || [item.street, item.city, item.postalCode].filter(Boolean).join(', '),
@@ -93,6 +130,28 @@ function normalizePlace(item) {
     imageUrl: item.imageUrl || null,
     source: 'google_maps',
   };
+}
+
+const MAX_LOOKUPS = 100;
+
+/**
+ * Look up many specific businesses in one run — e.g. the accounts of an
+ * imported lead list ("Lucas TVS Ltd, Chennai"). One place per query; each
+ * result's `searchTerm` is the query it answers.
+ */
+async function startPlacesLookup(queries) {
+  const list = cleanList(queries).slice(0, MAX_LOOKUPS);
+  if (list.length === 0) {
+    throw createError('At least one business to look up is required.', 'INVALID_PLACES_INPUT', 400);
+  }
+  const run = await startActorRun(ACTOR, {
+    searchStringsArray: list,
+    maxCrawledPlacesPerSearch: 1,
+    language: 'en',
+    skipClosedPlaces: false,
+    scrapeContacts: apifyScrapeContacts,
+  });
+  return { runId: run.id, status: run.status, queries: list.length };
 }
 
 async function startPlacesSearch(params) {
@@ -123,4 +182,4 @@ async function getPlacesSearch(runId) {
   return { ...base, done: true, places };
 }
 
-module.exports = { buildPlacesInput, normalizePlace, startPlacesSearch, getPlacesSearch };
+module.exports = { buildPlacesInput, normalizePlace, startPlacesSearch, startPlacesLookup, getPlacesSearch };
