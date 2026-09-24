@@ -1,75 +1,228 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
 import {
-  ClipboardCheck,
-  Mail,
-  ShieldCheck,
-  Sparkles,
-  Clock,
-  CheckCircle2,
   AlertTriangle,
+  CheckCircle2,
+  ClipboardCheck,
+  Globe,
+  Mail,
+  RefreshCw,
+  Send,
+  Sparkles,
+  Star,
+  XCircle,
 } from "lucide-react";
-import { Card, Button, Badge, cn } from "@/components/ui";
+import { Badge, Button, Card, Input, cn } from "@/components/ui";
+import { apiCall } from "@/lib/api";
 import { fetchLeads } from "@/lib/leadService";
-import { PipelineLead } from "@/lib/types";
+import type { PipelineLead } from "@/lib/types";
 
 /**
- * Review Queue — pending items are REAL leads from the backend whose AI
- * icebreaker has been generated (status PERSONALIZED).
+ * Human Review Queue — the gate between AI drafting and sending. Drafts
+ * (status PERSONALIZED) are only emailed when a reviewer clicks
+ * "Approve & send"; rejected drafts are never sent.
  */
 
-function KpiPill({ label, value, color }: { label: string; value: number; color: string }) {
+type MailStatus = { configured: boolean; user: string | null };
+
+interface Draft {
+  subject: string;
+  body: string;
+}
+
+function ReviewCard({
+  lead,
+  canSend,
+  onDone,
+}: {
+  lead: PipelineLead;
+  canSend: boolean;
+  onDone: (lead: PipelineLead, outcome: "sent" | "rejected") => void;
+}) {
+  const [draft, setDraft] = useState<Draft>({ subject: lead.emailSubject ?? "", body: lead.emailBody ?? "" });
+  const [busy, setBusy] = useState<"send" | "reject" | "redraft" | "save" | null>(null);
+  const [error, setError] = useState<string | null>(lead.sendError ?? null);
+  const [saved, setSaved] = useState(true);
+
+  const edit = (patch: Partial<Draft>) => {
+    setDraft((d) => ({ ...d, ...patch }));
+    setSaved(false);
+  };
+
+  const run = async (action: NonNullable<typeof busy>, fn: () => Promise<void>) => {
+    setBusy(action);
+    setError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const send = () =>
+    run("send", async () => {
+      const res = await apiCall<{ lead: PipelineLead }>(`/api/leads/${lead.id}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+      onDone(res.lead, "sent");
+    });
+
+  const reject = () =>
+    run("reject", async () => {
+      const res = await apiCall<{ lead: PipelineLead }>(`/api/leads/${lead.id}/review`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision: "reject" }),
+      });
+      onDone(res.lead, "rejected");
+    });
+
+  const save = () =>
+    run("save", async () => {
+      await apiCall(`/api/leads/${lead.id}/draft`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+      setSaved(true);
+    });
+
+  const redraft = () =>
+    run("redraft", async () => {
+      const res = await apiCall<{ lead: PipelineLead; warning: string | null }>(`/api/leads/${lead.id}/draft?force=1`, {
+        method: "POST",
+      });
+      setDraft({ subject: res.lead.emailSubject ?? "", body: res.lead.emailBody ?? "" });
+      setSaved(true);
+      if (res.warning) setError(res.warning);
+    });
+
+  const ready = draft.subject.trim() && draft.body.trim();
+
   return (
-    <div className="flex min-w-[110px] flex-col rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-2.5">
-      <span className={cn("text-xl font-semibold", color)}>{value}</span>
-      <span className="text-[11px] uppercase tracking-wide text-slate-500">{label}</span>
-    </div>
+    <Card className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-medium text-white">{lead.company || lead.name}</p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+            <span className="flex items-center gap-1">
+              <Mail className="h-3.5 w-3.5 text-slate-500" /> {lead.email}
+            </span>
+            {lead.website && (
+              <a
+                href={/^https?:/.test(lead.website) ? lead.website : `https://${lead.website}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 hover:text-sky-300"
+              >
+                <Globe className="h-3.5 w-3.5 text-slate-500" /> {lead.website.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}
+              </a>
+            )}
+            {typeof lead.googleRating === "number" && (
+              <span className="flex items-center gap-1 text-amber-300">
+                <Star className="h-3 w-3 fill-current" /> {lead.googleRating.toFixed(1)}
+              </span>
+            )}
+            {lead.city && <span>{lead.city}</span>}
+          </p>
+        </div>
+        <Badge color={lead.draftMethod === "ai" ? "violet" : "slate"}>
+          <Sparkles className="mr-1 h-3 w-3" /> {lead.draftMethod === "ai" ? "AI draft" : "Template draft"}
+        </Badge>
+      </div>
+
+      <div className="space-y-2">
+        <div>
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Subject</label>
+          <Input value={draft.subject} onChange={(e) => edit({ subject: e.target.value })} disabled={busy !== null} />
+        </div>
+        <div>
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Email</label>
+          <textarea
+            value={draft.body}
+            onChange={(e) => edit({ body: e.target.value })}
+            disabled={busy !== null}
+            rows={10}
+            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm leading-relaxed text-slate-100 focus:border-indigo-500 focus:outline-none disabled:opacity-60"
+          />
+        </div>
+        {lead.scrapedContext && (
+          <details className="text-xs text-slate-500">
+            <summary className="cursor-pointer hover:text-slate-300">Website text the draft was based on</summary>
+            <p className="mt-1 line-clamp-6">{lead.scrapedContext}</p>
+          </details>
+        )}
+      </div>
+
+      {error && (
+        <p className="flex items-start gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {error}
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-2">
+          <Button variant="ghost" onClick={redraft} loading={busy === "redraft"} disabled={busy !== null} title="Write a new draft">
+            <RefreshCw className="h-4 w-4" /> Redraft
+          </Button>
+          {!saved && (
+            <Button variant="ghost" onClick={save} loading={busy === "save"} disabled={busy !== null || !ready}>
+              Save edits
+            </Button>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button variant="danger" onClick={reject} loading={busy === "reject"} disabled={busy !== null}>
+            <XCircle className="h-4 w-4" /> Reject
+          </Button>
+          <Button
+            variant="success"
+            onClick={send}
+            loading={busy === "send"}
+            disabled={busy !== null || !ready || !canSend}
+            title={canSend ? `Send to ${lead.email} now` : "Connect Gmail in Settings to send"}
+          >
+            <Send className="h-4 w-4" /> Approve &amp; send
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }
 
 export function ReviewQueuePageContent() {
   const [leads, setLeads] = useState<PipelineLead[] | null>(null);
+  const [mail, setMail] = useState<MailStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [savingId, setSavingId] = useState<number | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const load = () => {
+  const load = useCallback(() => {
     setError(null);
     fetchLeads()
-      .then((data) => setLeads((data.leads ?? []).filter((l) => l.status === "PERSONALIZED")))
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : "Failed to load the review queue.")
-      );
-  };
-
-  useEffect(() => {
-    load();
+      .then((data) => setLeads((data.leads ?? []).filter((l) => l.status === "PERSONALIZED" && l.email)))
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load the review queue."));
+    apiCall<MailStatus>("/api/mail")
+      .then(setMail)
+      .catch(() => setMail({ configured: false, user: null }));
   }, []);
 
-  const decide = async (leadId: number, decision: "approve" | "reject") => {
-    setSavingId(leadId);
-    setError(null);
-    try {
-      const response = await fetch(`/api/leads/${leadId}/review`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Could not save review decision.");
-      setLeads((current) => current?.filter((lead) => lead.id !== leadId) ?? null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save review decision.");
-    } finally {
-      setSavingId(null);
-    }
+  useEffect(load, [load]);
+
+  const onDone = (lead: PipelineLead, outcome: "sent" | "rejected") => {
+    setLeads((current) => current?.filter((l) => l.id !== lead.id) ?? null);
+    setNotice(outcome === "sent" ? `Sent to ${lead.email}.` : `Rejected — ${lead.company || lead.name} will not be emailed.`);
   };
 
   const pendingCount = leads?.length ?? 0;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-500/15 text-orange-400">
@@ -80,27 +233,35 @@ export function ReviewQueuePageContent() {
             <p className="text-sm text-slate-400">
               {pendingCount > 0 ? (
                 <>
-                  <span className="font-semibold text-orange-400">{pendingCount} messages</span> pending review —
-                  approve, edit, or reject before dispatch
+                  <span className="font-semibold text-orange-400">{pendingCount} drafts</span> waiting — nothing is sent
+                  until you approve it.
                 </>
               ) : (
-                "Queue clear — all messages have been reviewed"
+                "Queue clear — every draft has been reviewed."
               )}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <Clock className="h-3.5 w-3.5" />
-          AI Generated → Pending Review → Approval → Queued
-        </div>
+        <div className="text-xs text-slate-500">Scraped → Drafted → Reviewed by you → Sent via Gmail</div>
       </div>
 
-      {/* KPI pill */}
-      <div className="flex flex-wrap gap-3">
-        <KpiPill label="Pending Review" value={pendingCount} color="text-orange-400" />
-      </div>
+      {mail && !mail.configured && (
+        <Card className="flex flex-wrap items-center gap-3 border-amber-500/30 bg-amber-500/5">
+          <AlertTriangle className="h-5 w-5 text-amber-400" />
+          <p className="flex-1 text-sm text-amber-200">Gmail is not connected, so approved drafts can&apos;t be sent yet.</p>
+          <Link href="/settings" className="text-sm font-medium text-sky-400 hover:underline">
+            Connect Gmail →
+          </Link>
+        </Card>
+      )}
+      {mail?.configured && <p className="text-xs text-slate-500">Sending from {mail.user}</p>}
 
-      {/* Cards */}
+      {notice && (
+        <p className="flex items-center gap-2 text-sm text-emerald-300">
+          <CheckCircle2 className="h-4 w-4" /> {notice}
+        </p>
+      )}
+
       {error ? (
         <Card className="flex flex-col items-center gap-2 py-12 text-center">
           <AlertTriangle className="h-8 w-8 text-rose-400" />
@@ -117,85 +278,15 @@ export function ReviewQueuePageContent() {
       ) : leads.length === 0 ? (
         <Card className="flex flex-col items-center gap-2 py-12 text-center">
           <CheckCircle2 className="h-8 w-8 text-emerald-400" />
-          <p className="text-sm font-medium text-slate-300">Nothing here right now</p>
+          <p className="text-sm font-medium text-slate-300">Nothing to review right now</p>
           <p className="max-w-sm text-xs text-slate-500">
-            Messages appear in this queue as AI personalization completes and moves into the review gate.
+            Find leads on the Overview map — drafts for businesses with an email appear here automatically.
           </p>
         </Card>
       ) : (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className={cn("grid gap-4", leads.length > 1 && "xl:grid-cols-2")}>
           {leads.map((lead) => (
-            <Card key={lead.id} className="space-y-4">
-              {/* Header */}
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800 text-sm font-semibold text-slate-300">
-                    {(lead.name || lead.email || "?")
-                      .split(" ")
-                      .map((p) => p[0])
-                      .slice(0, 2)
-                      .join("")
-                      .toUpperCase()}
-                  </div>
-                  <div>
-                    <p className="font-medium text-white">{lead.name || "N/A"}</p>
-                    <p className="text-sm text-slate-400">
-                      {lead.jobTitle || "N/A"} · {lead.company || "N/A"}
-                    </p>
-                    <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-300">
-                      <Mail className="h-3.5 w-3.5 text-slate-500" />
-                      {lead.email}
-                    </p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <Badge color="violet">
-                        <Sparkles className="mr-1 h-3 w-3" /> AI Generated
-                      </Badge>
-                      <Badge color="sky">
-                        <ShieldCheck className="mr-1 h-3 w-3" /> {lead.email ? "In pipeline" : "N/A"}
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-                <span className="rounded-full border border-orange-500/40 bg-orange-500/15 px-2.5 py-1 text-xs font-medium text-orange-400">
-                  Pending Review
-                </span>
-              </div>
-
-              {/* AI-generated content — only real backend fields */}
-              <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4 text-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Subject</p>
-                <p className="mt-0.5 text-slate-300">N/A</p>
-                <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  AI-generated body (icebreaker)
-                </p>
-                <p className="mt-1 whitespace-pre-line leading-relaxed text-slate-300">
-                  {lead.icebreaker || "N/A"}
-                </p>
-                <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">AI confidence</p>
-                <p className="mt-0.5 text-slate-300">N/A</p>
-                {lead.scrapedContext && (
-                  <>
-                    <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Personalization signal — scraped website context
-                    </p>
-                    <p className="mt-1 line-clamp-3 text-xs text-slate-400">{lead.scrapedContext}</p>
-                  </>
-                )}
-              </div>
-
-              {/* Decisions persist to the leads spreadsheet. */}
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button variant="secondary" disabled={savingId === lead.id} title="Editing message content is not implemented yet">
-                  Edit
-                </Button>
-                <Button variant="danger" loading={savingId === lead.id} onClick={() => decide(lead.id, "reject")}>
-                  Reject
-                </Button>
-                <Button variant="success" loading={savingId === lead.id} onClick={() => decide(lead.id, "approve")}>
-                  Approve &amp; Queue
-                </Button>
-              </div>
-            </Card>
+            <ReviewCard key={lead.id} lead={lead} canSend={Boolean(mail?.configured)} onDone={onDone} />
           ))}
         </div>
       )}

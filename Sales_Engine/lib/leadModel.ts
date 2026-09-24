@@ -7,7 +7,10 @@ export const LeadStatus = {
   PENDING: "PENDING",
   SCRAPED: "SCRAPED",
   PERSONALIZED: "PERSONALIZED",
+  /** Email sent (after human approval). */
   SYNCED: "SYNCED",
+  /** Draft rejected in human review; never sent. */
+  REJECTED: "REJECTED",
 } as const;
 export type LeadStatus = (typeof LeadStatus)[keyof typeof LeadStatus];
 
@@ -77,6 +80,15 @@ export interface Lead {
   longitude: number | null;
   scrapedContext: string | null;
   icebreaker: string | null;
+  /** AI/template email draft, editable in human review. */
+  emailSubject: string | null;
+  emailBody: string | null;
+  /** "ai" or "template". */
+  draftMethod: string | null;
+  sentAt: Date | null;
+  sentMessageId: string | null;
+  /** Last send or drafting error, shown in review. */
+  sendError: string | null;
   status: LeadStatus;
   businessType: BusinessType | null;
   classification: Classification | null;

@@ -71,6 +71,12 @@ const COLUMNS: { key: keyof Lead; kind: Kind; width: number }[] = [
   { key: "intentSignals", kind: "string", width: 30 },
   { key: "scrapedContext", kind: "string", width: 40 },
   { key: "icebreaker", kind: "string", width: 40 },
+  { key: "emailSubject", kind: "string", width: 40 },
+  { key: "emailBody", kind: "string", width: 60 },
+  { key: "draftMethod", kind: "string", width: 10 },
+  { key: "sentAt", kind: "date", width: 20 },
+  { key: "sentMessageId", kind: "string", width: 30 },
+  { key: "sendError", kind: "string", width: 30 },
   { key: "hubspotContactId", kind: "string", width: 14 },
   { key: "hubspotCompanyId", kind: "string", width: 14 },
   { key: "hubspotSyncStatus", kind: "string", width: 12 },
@@ -335,7 +341,7 @@ export const createLead = (input: LeadInput) => transaction((tx) => tx.create(in
 export const updateLead = (id: number, patch: LeadUpdate) => transaction((tx) => tx.update(id, patch));
 
 export async function countLeadsByStatus(): Promise<{ total: number } & Record<LeadStatus, number>> {
-  const counts = { total: 0, PENDING: 0, SCRAPED: 0, PERSONALIZED: 0, SYNCED: 0 };
+  const counts = { total: 0, PENDING: 0, SCRAPED: 0, PERSONALIZED: 0, SYNCED: 0, REJECTED: 0 };
   for (const lead of await serialize(load)) {
     counts.total++;
     counts[lead.status]++;

@@ -2,15 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { Send, MailCheck, Clock, Inbox, AlertTriangle } from "lucide-react";
-import { Card, Button, Badge, Modal, cn } from "@/components/ui";
+import { Card, Button, Modal, cn } from "@/components/ui";
 import { fetchLeads } from "@/lib/leadService";
 import { PipelineLead } from "@/lib/types";
 
 /**
- * Dispatch — Email Outbox. Rows are REAL leads the backend has pushed to the
- * sending platform (status SYNCED via POST /api/push → Instantly). Counts and
- * timestamps come from backend data. No SMTP/email logic or credentials exist
- * in the frontend.
+ * Dispatch — Email Outbox: emails that a reviewer approved in the Review
+ * Queue and that were sent through Gmail (status SYNCED). Read-only.
  */
 
 function KpiCard({
@@ -58,7 +56,7 @@ export function DispatchPageContent() {
   }, []);
 
   const sent = (leads ?? []).filter((l) => l.status === "SYNCED");
-  const awaitingPush = (leads ?? []).filter((l) => l.status === "PERSONALIZED");
+  const awaitingReview = (leads ?? []).filter((l) => l.status === "PERSONALIZED" && l.email);
 
   return (
     <div className="space-y-6">
@@ -70,15 +68,15 @@ export function DispatchPageContent() {
         <div>
           <h1 className="text-2xl font-semibold text-white">Dispatch — Email Outbox</h1>
           <p className="text-sm text-slate-400">
-            Final delivery stage. Only approved and queued messages are dispatched — never automatic.
+            Emails you approved in the Review Queue and sent through Gmail. Nothing is sent automatically.
           </p>
         </div>
       </div>
 
       {/* KPI cards — real pipeline counts */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <KpiCard label="Sent (pushed to sending platform)" value={sent.length} icon={MailCheck} color="text-sky-400" bg="bg-sky-500/15" />
-        <KpiCard label="Awaiting push (personalized)" value={awaitingPush.length} icon={Clock} color="text-indigo-400" bg="bg-indigo-500/15" />
+        <KpiCard label="Sent via Gmail" value={sent.length} icon={MailCheck} color="text-sky-400" bg="bg-sky-500/15" />
+        <KpiCard label="Waiting for your review" value={awaitingReview.length} icon={Clock} color="text-indigo-400" bg="bg-indigo-500/15" />
         <KpiCard label="Pipeline total" value={leads?.length ?? 0} icon={Inbox} color="text-slate-300" bg="bg-slate-800" />
       </div>
 
@@ -101,7 +99,7 @@ export function DispatchPageContent() {
           <Inbox className="h-8 w-8 text-slate-500" />
           <p className="text-sm font-medium text-slate-300">No dispatched emails yet</p>
           <p className="max-w-sm text-xs text-slate-500">
-            Leads appear here once they are approved and pushed to the sending platform (Instantly) via the backend.
+            Emails appear here after you click Approve &amp; send in the Review Queue.
           </p>
         </Card>
       ) : (
@@ -112,8 +110,8 @@ export function DispatchPageContent() {
                 <tr className="border-b border-slate-800 text-xs uppercase text-slate-400">
                   <th className="px-5 py-3 font-medium">Lead</th>
                   <th className="px-5 py-3 font-medium">Email</th>
-                  <th className="px-5 py-3 font-medium">Dispatch Status</th>
-                  <th className="px-5 py-3 font-medium">Pushed At</th>
+                  <th className="px-5 py-3 font-medium">Subject</th>
+                  <th className="px-5 py-3 font-medium">Sent At</th>
                   <th className="px-5 py-3 text-right font-medium">Action</th>
                 </tr>
               </thead>
@@ -125,16 +123,12 @@ export function DispatchPageContent() {
                       <p className="text-xs text-slate-500">{lead.company || "N/A"}</p>
                     </td>
                     <td className="px-5 py-3.5 text-slate-300">{lead.email}</td>
-                    <td className="px-5 py-3.5">
-                      <Badge color="emerald">
-                        <MailCheck className="mr-1 h-3 w-3" /> Sent via Instantly
-                      </Badge>
-                    </td>
+                    <td className="max-w-xs truncate px-5 py-3.5 text-slate-300">{lead.emailSubject || "—"}</td>
                     <td className="px-5 py-3.5 text-slate-400">
-                      {lead.updatedAt ? new Date(lead.updatedAt).toLocaleString() : "N/A"}
+                      {lead.sentAt ? new Date(lead.sentAt).toLocaleString() : "N/A"}
                     </td>
                     <td className="px-5 py-3.5 text-right">
-                      {lead.icebreaker ? (
+                      {lead.emailBody ? (
                         <Button variant="secondary" className="px-3 py-1.5 text-xs" onClick={() => setViewing(lead)}>
                           View Sent Email
                         </Button>
@@ -149,7 +143,7 @@ export function DispatchPageContent() {
           </div>
           <div className="flex items-center gap-2 border-t border-slate-800 px-5 py-3 text-xs text-slate-500">
             <Inbox className="h-3.5 w-3.5" />
-            Sent messages are locked — duplicate sending is prevented by the review → approve → queue flow.
+            Sent emails are locked — a lead can only be sent once, and only after human approval.
           </div>
         </Card>
       )}
@@ -164,16 +158,19 @@ export function DispatchPageContent() {
                   To: <span className="text-slate-200">{viewing.email}</span>
                 </p>
                 <p className="text-slate-400">
-                  Pushed:{" "}
+                  Sent:{" "}
                   <span className="text-slate-200">
-                    {viewing.updatedAt ? new Date(viewing.updatedAt).toLocaleString() : "N/A"}
+                    {viewing.sentAt ? new Date(viewing.sentAt).toLocaleString() : "N/A"}
                   </span>
                 </p>
+                <p className="text-slate-400">
+                  Subject: <span className="text-slate-200">{viewing.emailSubject || "—"}</span>
+                </p>
               </div>
-              <p className="whitespace-pre-line leading-relaxed text-slate-400">{viewing.icebreaker || "N/A"}</p>
+              <p className="whitespace-pre-line leading-relaxed text-slate-300">{viewing.emailBody || "N/A"}</p>
             </div>
             <div className="flex items-center gap-2 text-xs text-emerald-400">
-              <MailCheck className="h-4 w-4" /> Stored icebreaker that was pushed to the sending platform — read-only.
+              <MailCheck className="h-4 w-4" /> The exact email that was sent — read-only.
             </div>
             <div className="flex justify-end">
               <Button variant="secondary" onClick={() => setViewing(null)}>

@@ -14,6 +14,7 @@ export async function GET() {
       scraped: counts.SCRAPED,
       personalized: counts.PERSONALIZED,
       synced: counts.SYNCED,
+      rejected: counts.REJECTED,
     });
   } catch (err) {
     return NextResponse.json(

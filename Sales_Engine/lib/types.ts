@@ -19,7 +19,8 @@ export type PipelineStatus =
   | "PENDING"
   | "SCRAPED"
   | "PERSONALIZED"
-  | "SYNCED";
+  | "SYNCED"
+  | "REJECTED";
 
 export type BusinessType =
   | "HOTEL"
@@ -106,6 +107,18 @@ export interface PipelineLead {
   scrapedContext: string | null;
 
   icebreaker: string | null;
+
+  emailSubject?: string | null;
+
+  emailBody?: string | null;
+
+  draftMethod?: string | null;
+
+  sentAt?: string | null;
+
+  sentMessageId?: string | null;
+
+  sendError?: string | null;
 
   status: PipelineStatus;
 
@@ -494,6 +507,8 @@ export interface StatsResponse {
   scraped: number;
 
   personalized: number;
+
+  rejected?: number;
 
   synced: number;
 }

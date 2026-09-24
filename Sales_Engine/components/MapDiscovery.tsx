@@ -1,7 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
 import {
   AlertTriangle,
@@ -13,6 +14,7 @@ import {
   MapPin,
   Phone,
   Search,
+  Sparkles,
   Star,
   X,
 } from "lucide-react";
@@ -20,6 +22,7 @@ import { Button, Input, Select, cn } from "@/components/ui";
 import { PROJECTS, getProject } from "@/lib/projects";
 import { buildCategoryColors, hasCoordinates, placeCategory, type ScrapedPlace } from "@/lib/places";
 import { usePlacesSearch } from "@/lib/usePlacesSearch";
+import { useAutoDraft } from "@/lib/useAutoDraft";
 
 // Leaflet touches `window` at import time, so the map is client-only.
 const LeadMap = dynamic(() => import("@/components/map/LeadMap"), {
@@ -140,6 +143,15 @@ export function MapDiscovery() {
 
   const { status, run, places, error, elapsed, search, cancel } = usePlacesSearch();
   const busy = status === "starting" || status === "scraping";
+  const drafts = useAutoDraft();
+
+  // Every scrape flows straight into drafting: businesses with an email get a
+  // personalized draft that waits in the Review Queue (nothing is sent).
+  const { draftAll, reset: resetDrafts } = drafts;
+  useEffect(() => {
+    if (status === "done" && run?.done && !run.saveError) draftAll(run.places);
+    if (status === "starting") resetDrafts();
+  }, [status, run, draftAll, resetDrafts]);
 
   const project = getProject(projectId);
   const projectCategories = project?.requirements.categories ?? [];
@@ -307,6 +319,26 @@ export function MapDiscovery() {
           </>
         )}
       </div>
+
+      {(drafts.running || drafts.total > 0) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-violet-500/25 bg-violet-500/10 px-3 py-2 text-sm">
+          {drafts.running ? (
+            <Loader2 className="h-4 w-4 animate-spin text-violet-300" />
+          ) : (
+            <Sparkles className="h-4 w-4 text-violet-300" />
+          )}
+          <span className="text-violet-200">
+            {drafts.running
+              ? `Drafting personalized emails · ${drafts.done}/${drafts.total}`
+              : `${drafts.total - drafts.failed} email drafts ready for your review`}
+            {drafts.failed > 0 && ` · ${drafts.failed} failed`}
+          </span>
+          {drafts.lastError && <span className="text-xs text-rose-300">{drafts.lastError}</span>}
+          <Link href="/review" className="ml-auto text-sm font-medium text-sky-300 hover:underline">
+            Open Review Queue →
+          </Link>
+        </div>
+      )}
 
       {/* Results list + map */}
       <div className="grid gap-3 lg:grid-cols-[340px_minmax(0,1fr)]">

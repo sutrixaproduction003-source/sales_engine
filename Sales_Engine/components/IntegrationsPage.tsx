@@ -10,7 +10,7 @@ import { apiCall } from "@/lib/api";
  * Integrations — provider status is REAL backend data:
  *  - Apollo → GET /api/providers/health (proxies the provider
  *    backend's GET /api/crm/health — configured flags only, never keys)
- *  - Apify / OmniRoute / Instantly → existing GET /api/settings (masked)
+ *  - Apify / AI / Gmail → GET /api/settings (configured flags only)
  *  - LinkedIn Sales Navigator → link-based (opens in the user's own seat), no status
  * The frontend holds no provider credentials and performs no provider calls.
  */
@@ -95,9 +95,17 @@ export function IntegrationsPageContent() {
   ];
 
   const pipelineServices: { name: string; envVar: string; configured: boolean | null }[] = [
-    { name: "Apify", envVar: "APIFY_TOKEN", configured: pipeline?.apify ?? null },
-    { name: "Groq (AI)", envVar: "GROQ_API_KEY", configured: pipeline?.groq ?? null },
-    { name: "Instantly.ai", envVar: "INSTANTLY_API_KEY", configured: pipeline?.instantly ?? null },
+    {
+      name: "Gmail SMTP (sending)",
+      envVar: "GMAIL_USER + GMAIL_APP_PASSWORD",
+      configured: pipeline ? Boolean(pipeline.GMAIL_USER && pipeline.GMAIL_APP_PASSWORD) : null,
+    },
+    {
+      name: "AI drafting",
+      envVar: "DEEPSEEK_API_KEY or GROQ_API_KEY",
+      configured: pipeline ? Boolean(pipeline.DEEPSEEK_API_KEY || pipeline.GROQ_API_KEY) : null,
+    },
+    { name: "Apify", envVar: "APIFY_TOKEN", configured: pipeline?.APIFY_TOKEN ?? null },
   ];
 
   return (
@@ -183,12 +191,12 @@ export function IntegrationsPageContent() {
         </div>
       </Card>
 
-      {/* Pipeline services (Apify / OmniRoute / Instantly) — status from /api/settings */}
+      {/* Pipeline services (Gmail / AI / Apify) — status from /api/settings */}
       <Card className="space-y-4">
         <div>
           <h2 className="text-lg font-semibold text-white">Outbound pipeline services</h2>
           <p className="mt-0.5 text-sm text-slate-400">
-            Used by the Sales Engine pipeline routes (scrape → personalize → push). Keys are managed in Settings.
+            Used by the outreach pipeline (scrape → draft → human review → send). Managed in Settings.
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
