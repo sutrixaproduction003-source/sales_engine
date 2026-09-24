@@ -8,7 +8,7 @@ export const maxDuration = 60;
 export async function POST() {
   try {
     const leads = await prisma.lead.findMany({
-      where: { status: "PERSONALIZED" },
+      where: { status: "PERSONALIZED", email: { not: null } },
       take: 50,
     });
 

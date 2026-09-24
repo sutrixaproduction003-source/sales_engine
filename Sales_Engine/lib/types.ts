@@ -5,7 +5,7 @@
  *   (Sales Engine pipeline DB)
  *
  * - DiscoveryLead → normalized provider leads returned by
- *   POST /api/leads/discover
+ *   POST /api/search (Discovery page)
  *
  *   The backend normalizes Apollo payloads.
  *
@@ -100,7 +100,8 @@ export interface PipelineLead {
 
   website: string;
 
-  email: string;
+  /** Null for scraped businesses without a public email. */
+  email: string | null;
 
   scrapedContext: string | null;
 
@@ -484,20 +485,6 @@ export interface DiscoveryLead {
   aiEvaluatedAt?: string | null;
 }
 
-export interface DiscoverResponse {
-  total: number;
-
-  saved: number;
-
-  duplicates: number;
-
-  /**
-   * Leads whose missing coordinates were resolved by geocoding.
-   */
-  geocoded?: number;
-
-  leads: DiscoveryLead[];
-}
 
 export interface StatsResponse {
   total: number;

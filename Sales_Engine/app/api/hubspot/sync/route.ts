@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as { ids?: number[] };
     const leads = await prisma.lead.findMany({
-      where: body.ids?.length ? { id: { in: body.ids } } : { status: "PERSONALIZED" },
+      where: body.ids?.length ? { id: { in: body.ids } } : { status: "PERSONALIZED", email: { not: null } },
       take: 50,
     });
     let synced = 0;

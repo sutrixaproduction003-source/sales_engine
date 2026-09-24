@@ -51,7 +51,7 @@ export function LeadsHub() {
   const filtered = useMemo(() => {
     const q = filters.search.toLowerCase().trim();
     return leads.filter((l) => {
-      if (q && !`${l.name} ${l.company ?? ""} ${l.email} ${l.website}`.toLowerCase().includes(q)) return false;
+      if (q && !`${l.name} ${l.company ?? ""} ${l.email ?? ""} ${l.website}`.toLowerCase().includes(q)) return false;
       if (filters.state !== "All" && l.status !== filters.state) return false;
       if (filters.location && !(l.location ?? "").toLowerCase().includes(filters.location.toLowerCase())) return false;
       if (filters.source !== "All" && (l.source ?? "") !== filters.source) return false;

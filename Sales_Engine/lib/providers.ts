@@ -222,6 +222,7 @@ export async function instantlyPush(lead: Pick<Lead, "name" | "email" | "icebrea
   const apiKey = (process.env.INSTANTLY_API_KEY ?? "").trim();
   const baseUrl = (process.env.INSTANTLY_BASE_URL ?? INSTANTLY_BASE).replace(/\/$/, "");
   if (!apiKey) throw new Error("INSTANTLY_API_KEY missing");
+  if (!lead.email) throw new Error("Lead has no email address");
 
   const parts = splitName(lead.name ?? "");
 

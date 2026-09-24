@@ -130,7 +130,7 @@ export function ReviewQueuePageContent() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800 text-sm font-semibold text-slate-300">
-                    {(lead.name || lead.email)
+                    {(lead.name || lead.email || "?")
                       .split(" ")
                       .map((p) => p[0])
                       .slice(0, 2)

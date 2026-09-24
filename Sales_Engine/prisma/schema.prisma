@@ -44,7 +44,8 @@ model Lead {
   propertySizeCategory  String?
   company               String?
   website               String
-  email                 String
+  /// Optional: businesses scraped from Google Maps often have no public email.
+  email                 String?
   jobTitle              String?
   phone                 String?
   linkedinUrl           String?
@@ -62,6 +63,8 @@ model Lead {
   makeMyTripLink         String?
   instagramLink         String?
   facebookLink           String?
+  /// Google Maps place id — dedupe key for scraped businesses.
+  googlePlaceId         String?            @unique
   googleRating          Float?
   totalReviewsCount     Int?
   sentimentScore        Float?
