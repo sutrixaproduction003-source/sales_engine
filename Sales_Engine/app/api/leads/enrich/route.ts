@@ -1,42 +1,69 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { transaction } from "@/lib/leadDb";
+import { postToBackend } from "@/lib/providerBackend";
+import { NUMERIC_LEAD_FIELDS, cleanString, toLeadDetails, type ProviderLead } from "@/lib/leadRecord";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const BACKEND_URL =
-    process.env.LEAD_BACKEND_URL ||
-    process.env.BACKEND_URL ||
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    "http://localhost:5000";
+type LeadInput = ProviderLead & {
+    name?: string;
+    website?: string;
+    company?: string;
+    [key: string]: unknown;
+};
 
-interface EnrichRequest {
+/** Accepts `{ provider, lead: {...} }` or the lead fields at the top level. */
+interface EnrichRequest extends LeadInput {
     project?: string;
     provider?: string;
-    lead?: {
-        id?: string;
-        firstName?: string;
-        lastName?: string;
-        companyWebsite?: string;
-        email?: string;
-        linkedinUrl?: string;
-        [key: string]: unknown;
-    };
-
-    // Also allow the lead fields directly in the request.
-    id?: string;
-    firstName?: string;
-    lastName?: string;
-    fullName?: string;
-    name?: string;
-    companyWebsite?: string;
-    email?: string;
-    linkedinUrl?: string;
-    [key: string]: unknown;
+    lead?: LeadInput;
 }
 
-function cleanString(value: unknown): string {
-    return typeof value === "string" ? value.trim() : "";
+/**
+ * Save an enriched lead so it appears in the Lead Hub. Enriched contact
+ * fields win over what the client sent; everything else comes from the
+ * client's copy of the lead.
+ */
+async function saveEnrichedLead(
+    input: LeadInput,
+    enriched: LeadInput,
+    identity: { email: string; website: string; name: string },
+    project: string,
+    provider: string
+) {
+    const details = toLeadDetails({
+        ...input,
+        companyName: cleanString(enriched.companyName || input.companyName || input.company),
+        jobTitle: cleanString(enriched.jobTitle || input.jobTitle),
+        linkedinUrl: cleanString(enriched.linkedinUrl || input.linkedinUrl),
+        phone: cleanString(enriched.phone || input.phone),
+    });
+    const source = cleanString(input.source || provider) || null;
+    const name = identity.name || "Unknown";
+
+    // On update, never overwrite stored numbers with "unknown".
+    const update: Record<string, unknown> = { ...details, name, source };
+    for (const field of NUMERIC_LEAD_FIELDS) {
+        if (update[field] === null) delete update[field];
+    }
+
+    await transaction((tx) => {
+        const existing = tx.find((l) => l.email === identity.email && l.website === identity.website);
+        if (existing) {
+            tx.update(existing.id, update);
+        } else {
+            tx.create({
+                ...details,
+                name,
+                source,
+                email: identity.email,
+                website: identity.website,
+                project: project || null,
+                status: "PENDING",
+            });
+        }
+    });
 }
 
 export async function POST(request: NextRequest) {
@@ -44,22 +71,11 @@ export async function POST(request: NextRequest) {
         const body = (await request.json()) as EnrichRequest;
 
         const provider = cleanString(body.provider).toLowerCase();
-
         if (!provider) {
-            return NextResponse.json(
-                {
-                    success: false,
-                    error: "Provider is required.",
-                },
-                { status: 400 }
-            );
+            return NextResponse.json({ success: false, error: "Provider is required." }, { status: 400 });
         }
 
-        // Support both:
-        // { lead: { ... } }
-        // and
-        // { id, firstName, lastName, ... }
-        const lead = body.lead ?? {};
+        const lead: LeadInput = body.lead ?? {};
 
         const id = cleanString(lead.id || body.id);
         const firstName = cleanString(lead.firstName || body.firstName);
@@ -69,19 +85,9 @@ export async function POST(request: NextRequest) {
             lead.companyWebsite || lead.website || body.companyWebsite || body.website
         );
         const email = cleanString(lead.email || body.email);
-        const linkedinUrl = cleanString(
-            lead.linkedinUrl || body.linkedinUrl
-        );
+        const linkedinUrl = cleanString(lead.linkedinUrl || body.linkedinUrl);
 
-        const hasDirectIdentifier =
-            Boolean(id) || Boolean(email) || Boolean(linkedinUrl);
-
-        const hasNameAndCompany =
-            Boolean(firstName) &&
-            Boolean(lastName) &&
-            Boolean(companyWebsite);
-
-        if (!hasDirectIdentifier && !hasNameAndCompany) {
+        if (!id && !email && !linkedinUrl && !(firstName && lastName && companyWebsite)) {
             return NextResponse.json(
                 {
                     success: false,
@@ -92,7 +98,7 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const backendPayload = {
+        const response = await postToBackend("/api/leads/enrich", {
             provider,
             id: id || undefined,
             firstName: firstName || undefined,
@@ -100,27 +106,16 @@ export async function POST(request: NextRequest) {
             companyWebsite: companyWebsite || undefined,
             email: email || undefined,
             linkedinUrl: linkedinUrl || undefined,
-        };
-
-        const response = await fetch(`${BACKEND_URL}/api/leads/enrich`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(backendPayload),
-            cache: "no-store",
         });
 
-        let data: unknown;
-
-        try {
-            data = await response.json();
-        } catch {
-            data = {
-                success: false,
-                error: "Backend returned an invalid response.",
-            };
-        }
+        const data = (await response.json().catch(() => ({
+            success: false,
+            error: "Backend returned an invalid response.",
+        }))) as {
+            error?: unknown;
+            lead?: LeadInput;
+            data?: { lead?: LeadInput };
+        };
 
         if (!response.ok) {
             return NextResponse.json(
@@ -128,119 +123,47 @@ export async function POST(request: NextRequest) {
                     success: false,
                     provider,
                     error:
-                        typeof data === "object" &&
-                            data !== null &&
-                            "error" in data &&
-                            typeof (data as { error?: unknown }).error === "string"
-                            ? (data as { error: string }).error
+                        typeof data?.error === "string"
+                            ? data.error
                             : `Lead enrichment failed with HTTP ${response.status}.`,
-                    ...(typeof data === "object" && data !== null ? data : {}),
+                    ...(data && typeof data === "object" ? data : {}),
                 },
                 { status: response.status }
             );
         }
 
-        // Save successfully enriched lead to Prisma database so it appears in the Lead Hub
-        try {
-            const resultData = data as Record<string, unknown>;
-            const safeResultData = resultData as { data?: { lead?: Record<string, unknown> }; lead?: Record<string, unknown> };
-            const enrichedLeadData = safeResultData?.lead || safeResultData?.data?.lead || {};
-            
-            const finalEmail = cleanString(enrichedLeadData.email || email);
-            const finalWebsite = cleanString(enrichedLeadData.companyWebsite || enrichedLeadData.domain || companyWebsite);
-            
-            if (finalEmail && finalWebsite) {
-                const finalName = cleanString(
-                    enrichedLeadData.fullName || 
-                    enrichedLeadData.name ||
+        const enriched: LeadInput = data?.lead || data?.data?.lead || {};
+        const finalEmail = cleanString(enriched.email || email);
+        const finalWebsite = cleanString(
+            enriched.companyWebsite || (enriched as { domain?: string }).domain || companyWebsite
+        );
+
+        if (finalEmail && finalWebsite) {
+            const finalName = cleanString(
+                enriched.fullName ||
+                    enriched.name ||
                     fullName ||
-                    `${cleanString(enrichedLeadData.firstName || firstName)} ${cleanString(enrichedLeadData.lastName || lastName)}`.trim()
+                    `${cleanString(enriched.firstName || firstName)} ${cleanString(enriched.lastName || lastName)}`.trim()
+            );
+
+            try {
+                await saveEnrichedLead(
+                    { ...lead, linkedinUrl },
+                    enriched,
+                    { email: finalEmail, website: finalWebsite, name: finalName },
+                    cleanString(body.project),
+                    provider
                 );
-                
-                await prisma.lead.upsert({
-                    where: {
-                        email_website: { email: finalEmail, website: finalWebsite }
-                    },
-                    update: {
-                        name: finalName || "Unknown",
-                        company: cleanString(enrichedLeadData.companyName || lead.companyName || lead.company) || null,
-                        hotelName: cleanString(lead.hotelName) || null,
-                        brandType: cleanString(lead.brandType) || null,
-                        propertySizeCategory: cleanString(lead.propertySizeCategory) || null,
-                        jobTitle: cleanString(enrichedLeadData.jobTitle || lead.jobTitle) || null,
-                        linkedinUrl: cleanString(enrichedLeadData.linkedinUrl || linkedinUrl) || null,
-                        phone: cleanString(enrichedLeadData.phone || lead.phone) || null,
-                        location: cleanString(lead.location) || null,
-                        city: cleanString(lead.city) || null,
-                        state: cleanString(lead.state) || null,
-                        exactAddress: cleanString(lead.exactAddress) || null,
-                        googleMapsLink: cleanString(lead.googleMapsLink) || null,
-                        industry: cleanString(lead.industry) || null,
-                        source: cleanString(lead.source || provider) || null,
-                        googleBusinessLink: cleanString(lead.googleBusinessLink) || null,
-                        tripAdvisorLink: cleanString(lead.tripAdvisorLink) || null,
-                        bookingComLink: cleanString(lead.bookingComLink) || null,
-                        makeMyTripLink: cleanString(lead.makeMyTripLink) || null,
-                        instagramLink: cleanString(lead.instagramLink) || null,
-                        facebookLink: cleanString(lead.facebookLink) || null,
-                        googleRating: typeof lead.googleRating === "number" ? lead.googleRating : undefined,
-                        totalReviewsCount: typeof lead.totalReviewsCount === "number" ? lead.totalReviewsCount : undefined,
-                        sentimentScore: typeof lead.sentimentScore === "number" ? lead.sentimentScore : undefined,
-                        latitude: typeof lead.latitude === "number" ? lead.latitude : undefined,
-                        longitude: typeof lead.longitude === "number" ? lead.longitude : undefined,
-                    },
-                    create: {
-                        name: finalName || "Unknown",
-                        email: finalEmail,
-                        website: finalWebsite,
-                        company: cleanString(enrichedLeadData.companyName || lead.companyName || lead.company) || null,
-                        hotelName: cleanString(lead.hotelName) || null,
-                        brandType: cleanString(lead.brandType) || null,
-                        propertySizeCategory: cleanString(lead.propertySizeCategory) || null,
-                        jobTitle: cleanString(enrichedLeadData.jobTitle || lead.jobTitle) || null,
-                        phone: cleanString(enrichedLeadData.phone || lead.phone) || null,
-                        linkedinUrl: cleanString(enrichedLeadData.linkedinUrl || linkedinUrl) || null,
-                        location: cleanString(lead.location) || null,
-                        city: cleanString(lead.city) || null,
-                        state: cleanString(lead.state) || null,
-                        exactAddress: cleanString(lead.exactAddress) || null,
-                        googleMapsLink: cleanString(lead.googleMapsLink) || null,
-                        industry: cleanString(lead.industry) || null,
-                        project: cleanString(body.project) || null,
-                        source: cleanString(lead.source || provider) || null,
-                        googleBusinessLink: cleanString(lead.googleBusinessLink) || null,
-                        tripAdvisorLink: cleanString(lead.tripAdvisorLink) || null,
-                        bookingComLink: cleanString(lead.bookingComLink) || null,
-                        makeMyTripLink: cleanString(lead.makeMyTripLink) || null,
-                        instagramLink: cleanString(lead.instagramLink) || null,
-                        facebookLink: cleanString(lead.facebookLink) || null,
-                        googleRating: typeof lead.googleRating === "number" ? lead.googleRating : null,
-                        totalReviewsCount: typeof lead.totalReviewsCount === "number" ? lead.totalReviewsCount : null,
-                        sentimentScore: typeof lead.sentimentScore === "number" ? lead.sentimentScore : null,
-                        latitude: typeof lead.latitude === "number" ? lead.latitude : null,
-                        longitude: typeof lead.longitude === "number" ? lead.longitude : null,
-                        status: "PENDING"
-                    }
-                });
+            } catch (dbErr) {
+                console.error("Failed to save enriched lead to the leads spreadsheet:", dbErr);
             }
-        } catch (dbErr) {
-            console.error("Failed to save enriched lead to Prisma database:", dbErr);
         }
 
-        return NextResponse.json(data, {
-            status: 200,
-        });
+        return NextResponse.json(data, { status: 200 });
     } catch (error) {
         console.error("Lead enrichment route error:", error);
-
         return NextResponse.json(
-            {
-                success: false,
-                error:
-                    error instanceof Error
-                        ? error.message
-                        : "Unable to enrich lead.",
-            },
+            { success: false, error: error instanceof Error ? error.message : "Unable to enrich lead." },
             { status: 500 }
         );
     }

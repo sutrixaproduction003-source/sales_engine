@@ -1,49 +1,37 @@
 /**
  * Project registry — the single place to add a new project to the Sales
- * Engine. Adding an entry to PROJECTS instantly makes the project selectable
- * in the discovery UI and applies its requirements to provider searches.
- * No core search, map, provider, or marker code needs to change.
+ * Engine. Adding an entry to PROJECTS makes it selectable in discovery.
  *
- * Requirements are generic, data-driven search hints merged into the provider
- * filters (see mergeProjectFilters):
- *  - industry   → default industry filter for the provider search
- *  - categories → selectable target categories (kept as category ids and used
- *                 as a hard post-filter; never concatenated into industry)
- *  - jobTitle   → fallback job_title filter when the user does not specify one
+ * Requirements are generic, data-driven search hints:
+ *  - categories → business types scraped from Google Maps for a location
+ *                 (see getProjectSearchTerms), selectable as chips
+ *  - industry / jobTitle → hints for provider people searches
  *
- * The project name is never used as a data switch — every project follows the
- * exact same search → normalize → geocode → map pipeline.
+ * The project name is never used as a data switch.
  */
-
-import {
-  categorySearchHints,
-  resolveCategoryIds,
-  type SearchCategoryId,
-} from "@/lib/categorySearch";
 
 export interface ProjectRequirements {
   industry?: string;
   categories?: string[];
   jobTitle?: string;
+  /** Decision-maker roles to look for at a business, most senior first. */
+  targetRoles?: string[];
 }
 
 /**
  * Provider names supported by the EXISTING provider backend (backendZip
- * providerFactory: apollo | hunter | prospeo). Kept in sync with that list —
- * no other values may be sent to POST /api/leads/search.
+ * providerFactory). Kept in sync with that list — no other values may be
+ * sent to POST /api/leads/search.
  */
-export type ProviderName = "prospeo" | "hunter" | "apollo";
+export type ProviderName = "apollo";
 
-export const SUPPORTED_PROVIDERS: ProviderName[] = ["prospeo", "hunter", "apollo"];
+export const SUPPORTED_PROVIDERS: ProviderName[] = ["apollo"];
 
 /**
  * Fallback provider used when a project does not declare one and the request
- * carries no explicit override. Both Prospeo and Apollo implement people
- * search (Hunter does not), but Prospeo remains the safe default because it
- * is the only provider that returns real contact data (emails) in its search
- * results.
+ * carries no explicit override.
  */
-export const DEFAULT_PROVIDER: ProviderName = "prospeo";
+export const DEFAULT_PROVIDER: ProviderName = "apollo";
 
 export interface ProjectConfig {
   id: string;
@@ -64,17 +52,52 @@ export const PROJECTS: ProjectConfig[] = [
     description: "Hospitality & property outreach (hotels, resorts, restaurants).",
     requirements: {
       categories: ["Hotels", "Resorts", "Restaurants", "Hospitality Groups", "Property Management"],
+      targetRoles: ["General Manager", "Owner", "Director of Sales", "Revenue Manager", "Front Office Manager"],
     },
-    provider: "prospeo",
+    provider: "apollo",
+  },
+  {
+    id: "medos",
+    name: "Med OS",
+    description: "Healthcare outreach (hospitals and clinics).",
+    requirements: {
+      industry: "Hospital & Health Care",
+      categories: ["Hospitals", "Clinics"],
+      targetRoles: ["Medical Director", "Hospital Administrator", "CEO", "Owner", "IT Head"],
+    },
+    provider: "apollo",
   },
   {
     id: "general",
     name: "General Sales",
     description: "Open prospecting across any industry or location.",
-    requirements: {},
-    provider: "prospeo",
+    requirements: {
+      targetRoles: ["Owner", "Founder", "CEO", "Director", "Manager"],
+    },
+    provider: "apollo",
   },
 ];
+
+/**
+ * Google Maps search terms for a location scrape: the selected project
+ * categories (all of the project's categories when none are selected) plus an
+ * optional free-text business type. Unknown categories are ignored.
+ */
+export function getProjectSearchTerms(
+  project: ProjectConfig | undefined,
+  selectedCategories: string[] = [],
+  keyword = ""
+): string[] {
+  const projectCategories = project?.requirements.categories ?? [];
+  const chosen = selectedCategories.filter((c) => projectCategories.includes(c));
+  const terms = [...(chosen.length ? chosen : projectCategories), keyword.trim()].filter(Boolean);
+  return Array.from(new Set(terms.map((term) => term.toLowerCase())));
+}
+
+/** Roles to look for at a business for this project (generic defaults otherwise). */
+export function getProjectRoles(project: ProjectConfig | undefined): string[] {
+  return project?.requirements.targetRoles ?? ["Owner", "Founder", "CEO", "Director", "Manager"];
+}
 
 export function getProject(id: string | null | undefined): ProjectConfig | undefined {
   return PROJECTS.find((p) => p.id === id);
@@ -96,82 +119,4 @@ export function getProjectProvider(
     return override as ProviderName;
   }
   return project?.provider ?? DEFAULT_PROVIDER;
-}
-
-/** Raw filters as collected from the UI (all optional). */
-export interface UserFilters {
-  location?: string;
-  industry?: string;
-  categories?: string[];
-  job_title?: string;
-}
-
-/** Filters documented by the provider backend (API.md): location, industry, job_title. */
-export interface MergedFilters {
-  location?: string;
-  industry?: string;
-  job_title?: string;
-  /** Free-text keyword hints derived from selected categories (not industry). */
-  keywords?: string;
-  /** Resolved category ids for hard post-filtering after provider search. */
-  categoryIds?: SearchCategoryId[];
-}
-
-/**
- * Combine a project's requirements with the user's selections into the
- * filters documented by the provider backend. Purely data-driven — behaves
- * identically for every project (unknown/absent projects simply contribute
- * no requirements).
- *
- * Categories are intentionally kept separate and must NEVER be concatenated
- * into the industry string. They are resolved into provider-friendly search
- * hints (industry + keywords) and passed back as `categoryIds` so the
- * discover route can apply a hard post-filter after provider search.
- */
-export function mergeProjectFilters(
-  project: ProjectConfig | undefined,
-  user: UserFilters
-): MergedFilters {
-  const filters: MergedFilters = {};
-
-  if (user.location?.trim()) filters.location = user.location.trim();
-
-  // Resolve selected category chips → typed ids
-  const selectedIds = resolveCategoryIds(
-    Array.isArray(user.categories) ? user.categories : []
-  );
-
-  if (selectedIds.length > 0) {
-    // Translate category ids into appropriate provider search hints
-    const hints = categorySearchHints(selectedIds);
-    // Use category-derived industry hint, falling back to project/user industry
-    const industryBase = hints.industry ?? project?.requirements.industry ?? user.industry;
-    if (industryBase?.trim()) filters.industry = industryBase.trim();
-    // Pass category keywords as job-title hint only when no explicit job_title given
-    if (!user.job_title?.trim() && !project?.requirements.jobTitle && hints.keywords) {
-      filters.keywords = hints.keywords;
-    }
-  } else {
-    // No category chips selected — use project industry + user industry only
-    const seen = new Set<string>();
-    const industryParts = [project?.requirements.industry, user.industry]
-      .map((p) => p?.trim())
-      .filter((p): p is string => Boolean(p))
-      .filter((p) => {
-        const key = p.toLowerCase();
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-    if (industryParts.length > 0) filters.industry = industryParts.join(", ");
-  }
-
-  // User-specified job title wins; the project requirement is the fallback.
-  const jobTitle = user.job_title?.trim() || project?.requirements.jobTitle?.trim() || "";
-  if (jobTitle) filters.job_title = jobTitle;
-
-  // Carry resolved ids forward so the discover route can post-filter
-  filters.categoryIds = selectedIds;
-
-  return filters;
 }

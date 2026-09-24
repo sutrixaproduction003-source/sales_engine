@@ -1,44 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw, ArrowRight, AlertTriangle } from "lucide-react";
 import { Button, Card } from "@/components/ui";
 import { MapDiscovery } from "@/components/MapDiscovery";
 import { KpiCard, PipelineCard } from "@/components/overviewCards";
-import { getStats } from "@/lib/leadService";
-import { refreshLeads, useLeadsStore } from "@/lib/leadStore";
+import { refreshLeads } from "@/lib/leadStore";
 import { LeadState } from "@/lib/states";
 import type { StatsResponse } from "@/lib/types";
+import { useStats } from "@/lib/useStats";
 
 /**
  * Overview — fully data-driven:
+ *  - Lead map                  → Google Maps scrape via /api/places/search
  *  - KPIs / Pipeline Overview  → GET /api/stats (real pipeline DB counters)
- *  - Global Lead Distribution  → project discovery via POST /api/leads/discover
- *  - Recent Activity           → honest empty state (no activity endpoint yet)
  */
 export default function OverviewPage() {
   const router = useRouter();
-  const { leads } = useLeadsStore();
-  const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [statsError, setStatsError] = useState<string | null>(null);
-
-  const loadStats = useCallback(async () => {
-    setStatsError(null);
-    try {
-      setStats(await getStats());
-    } catch (err) {
-      setStatsError(err instanceof Error ? err.message : "Failed to load pipeline statistics.");
-    }
-  }, []);
+  const { stats, error: statsError, reload: loadStats } = useStats();
 
   const refreshAll = useCallback(async () => {
     await Promise.all([loadStats(), refreshLeads()]);
   }, [loadStats]);
 
   useEffect(() => {
-    refreshAll();
-  }, [refreshAll]);
+    refreshLeads();
+  }, []);
 
   const s: StatsResponse = stats ?? { total: 0, pending: 0, scraped: 0, personalized: 0, synced: 0 };
   const kpis: [string, number][] = [
@@ -66,6 +54,17 @@ export default function OverviewPage() {
           <RefreshCw className="h-4 w-4" /> Refresh
         </Button>
       </div>
+
+      <Card className="!p-4">
+        <div className="mb-3">
+          <h2 className="text-base font-semibold text-white">Find leads on the map</h2>
+          <p className="text-xs text-slate-400">
+            Pick a location and project — businesses are scraped from Google Maps, pinned at their exact address,
+            and saved to the pipeline.
+          </p>
+        </div>
+        <MapDiscovery />
+      </Card>
 
       {statsError ? (
         <Card className="flex flex-wrap items-center gap-3">
@@ -117,24 +116,6 @@ export default function OverviewPage() {
         </>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2 !p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-200">Global Lead Distribution</h2>
-            <span className="text-xs text-slate-400">Dynamic discovery</span>
-          </div>
-          <MapDiscovery />
-        </Card>
-        <Card className="!p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-200">Recent Activity</h2>
-            <span className="text-xs text-slate-400">{leads.length} leads</span>
-          </div>
-          <p className="rounded-lg border border-dashed border-slate-700 bg-slate-900/40 px-3 py-6 text-center text-xs text-slate-500">
-            No recent activity. Pipeline events will appear here once the backend exposes an activity feed.
-          </p>
-        </Card>
-      </div>
     </div>
   );
 }

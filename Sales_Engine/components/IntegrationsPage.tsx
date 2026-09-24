@@ -1,16 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plug, ShieldCheck, Puzzle, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
+import { Plug, ShieldCheck, Puzzle, CheckCircle2, XCircle, AlertTriangle, ExternalLink } from "lucide-react";
 import { Card, Badge, Button, cn } from "@/components/ui";
 import { getProviderHealth } from "@/lib/leadService";
 import { apiCall } from "@/lib/api";
 
 /**
  * Integrations — provider status is REAL backend data:
- *  - Prospeo / Hunter / Apollo → GET /api/providers/health (proxies the provider
+ *  - Apollo → GET /api/providers/health (proxies the provider
  *    backend's GET /api/crm/health — configured flags only, never keys)
- *  - Apify / OmniRoute / Instantly → existing GET /api/settings (masked)
+ *  - Apify / AI / Gmail → GET /api/settings (configured flags only)
+ *  - LinkedIn Sales Navigator → link-based (opens in the user's own seat), no status
  * The frontend holds no provider credentials and performs no provider calls.
  */
 
@@ -85,32 +86,26 @@ export function IntegrationsPageContent() {
 
   const providers: { name: string; initial: string; tone: string; desc: string; state: HealthState }[] = [
     {
-      name: "Prospeo",
-      initial: "P",
-      tone: "from-indigo-500 to-violet-600",
-      desc: "People & company search, enrichment, and account data — called by the provider backend.",
-      state: health?.prospeo ?? null,
-    },
-    {
-      name: "Hunter",
-      initial: "H",
-      tone: "from-sky-500 to-indigo-600",
-      desc: "Domain search, email finder, and email verification — called by the provider backend.",
-            state: health?.hunter ?? null,
-    },
-    {
-      name: "Apollo",
+      name: "Apollo.io",
       initial: "A",
       tone: "from-amber-500 to-orange-600",
-      desc: "People & company search via Apollo (mixed_people) — called by the provider backend.",
+      desc: "Decision-makers at a business and their work emails. Add the API key in Settings → API keys.",
       state: health?.apollo ?? null,
     },
   ];
 
   const pipelineServices: { name: string; envVar: string; configured: boolean | null }[] = [
-    { name: "Apify", envVar: "APIFY_TOKEN", configured: pipeline?.apify ?? null },
-    { name: "Groq (AI)", envVar: "GROQ_API_KEY", configured: pipeline?.groq ?? null },
-    { name: "Instantly.ai", envVar: "INSTANTLY_API_KEY", configured: pipeline?.instantly ?? null },
+    {
+      name: "Gmail SMTP (sending)",
+      envVar: "GMAIL_USER + GMAIL_APP_PASSWORD",
+      configured: pipeline ? Boolean(pipeline.GMAIL_USER && pipeline.GMAIL_APP_PASSWORD) : null,
+    },
+    {
+      name: "AI drafting",
+      envVar: "DEEPSEEK_API_KEY or GROQ_API_KEY",
+      configured: pipeline ? Boolean(pipeline.DEEPSEEK_API_KEY || pipeline.GROQ_API_KEY) : null,
+    },
+    { name: "Apify", envVar: "APIFY_TOKEN", configured: pipeline?.APIFY_TOKEN ?? null },
   ];
 
   return (
@@ -142,12 +137,12 @@ export function IntegrationsPageContent() {
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
           <p className="text-sm text-amber-300">
-            {healthError} — start the CRM provider backend (backendZip) to see live Prospeo/Hunter/Apollo status.
+            {healthError} — start the CRM provider backend (backendZip) to see live Apollo status.
           </p>
         </div>
       )}
 
-      {/* Provider cards (Prospeo / Hunter / Apollo) — status from the provider backend */}
+      {/* API provider cards — status from the provider backend */}
       {providers.map((p) => (
         <Card key={p.name} className="space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -170,12 +165,38 @@ export function IntegrationsPageContent() {
         </Card>
       ))}
 
-      {/* Pipeline services (Apify / OmniRoute / Instantly) — status from /api/settings */}
+      {/* LinkedIn Sales Navigator — link-based, no backend credentials */}
+      <Card className="space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-blue-700 text-lg font-bold text-white">
+              in
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-white">LinkedIn Sales Navigator</h2>
+              <p className="mt-0.5 text-sm text-slate-400">
+                Discovery opens a pre-filled Sales Navigator people search in your own signed-in seat. LinkedIn
+                offers no public search API, so no key is stored and nothing is scraped.
+              </p>
+            </div>
+          </div>
+          <a
+            href="https://www.linkedin.com/sales/home"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs font-medium text-sky-300 hover:text-sky-200"
+          >
+            Open Sales Navigator <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+      </Card>
+
+      {/* Pipeline services (Gmail / AI / Apify) — status from /api/settings */}
       <Card className="space-y-4">
         <div>
           <h2 className="text-lg font-semibold text-white">Outbound pipeline services</h2>
           <p className="mt-0.5 text-sm text-slate-400">
-            Used by the Sales Engine pipeline routes (scrape → personalize → push). Keys are managed in Settings.
+            Used by the outreach pipeline (scrape → draft → human review → send). Managed in Settings.
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -217,7 +238,7 @@ export function IntegrationsPageContent() {
           <p className="text-sm font-medium text-slate-300">More providers coming soon</p>
           <p className="text-xs text-slate-500">
             The integration layer is provider-friendly — additional data providers can be added
-            alongside Prospeo, Hunter, and Apollo without frontend changes.
+            alongside Apollo and Sales Navigator.
           </p>
         </div>
       </Card>

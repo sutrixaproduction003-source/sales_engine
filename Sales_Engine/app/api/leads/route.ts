@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { DuplicateLeadError, listLeads, transaction } from "@/lib/leadDb";
 import Papa from "papaparse";
+import { toLeadDetails } from "@/lib/leadRecord";
 
 export const runtime = "nodejs";
-export const maxDuration =  60;
+// Reads the leads spreadsheet on every request; never prerender.
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 interface CsvRow {
   name?: string;
@@ -37,17 +40,9 @@ interface CsvRow {
   longitude?: string;
 }
 
-function toNum(value: string | undefined): number | null {
-  if (!value || !value.trim()) return null;
-  const n = Number(value.trim());
-  return Number.isFinite(n) ? n : null;
-}
-
 export async function GET() {
   try {
-    const leads = await prisma.lead.findMany({
-      orderBy: { createdAt: "desc" },
-    });
+    const leads = await listLeads({ newestFirst: true });
     return NextResponse.json({ leads });
   } catch (err) {
     return NextResponse.json(
@@ -79,55 +74,61 @@ export async function POST(request: Request) {
     const rows = parsed.data.filter((r) => r.name && r.website && r.email);
 
     if (rows.length === 0) {
-      return NextResponse.json({ error: "No valid rows found" }, { status:  400 });
+      return NextResponse.json({ error: "No valid rows found" }, { status: 400 });
     }
 
-    let created =  0;
-    for (const row of rows) {
-      const data = {
-        name: row.name?.trim() ?? "",
-        hotelName: row.hotel_name?.trim() || row.company?.trim() || null,
-        brandType: row.brand_type?.trim() || null,
-        propertySizeCategory: row.property_size_category?.trim() || null,
-        company: row.company?.trim() || null,
-        website: row.website?.trim() ?? "",
-        email: row.email?.trim() ?? "",
-        jobTitle: row.job_title?.trim() || null,
-        phone: row.phone?.trim() || null,
-        linkedinUrl: row.linkedin_url?.trim() || null,
-        location: row.location?.trim() || null,
-        city: row.city?.trim() || null,
-        state: row.state?.trim() || null,
-        exactAddress: row.exact_address?.trim() || null,
-        googleMapsLink: row.google_maps_link?.trim() || null,
-        industry: row.industry?.trim() || null,
-        project: row.project?.trim() || null,
-        source: row.source?.trim() || "CSV Import",
-        googleBusinessLink: row.google_business_link?.trim() || null,
-        tripAdvisorLink: row.tripadvisor_link?.trim() || null,
-        bookingComLink: row.booking_com_link?.trim() || null,
-        makeMyTripLink: row.makemytrip_link?.trim() || null,
-        instagramLink: row.instagram_link?.trim() || null,
-        facebookLink: row.facebook_link?.trim() || null,
-        googleRating: toNum(row.google_rating),
-        totalReviewsCount: toNum(row.total_reviews_count),
-        sentimentScore: toNum(row.sentiment_score),
-        latitude: toNum(row.latitude),
-        longitude: toNum(row.longitude),
-      };
-      try {
-        await prisma.lead.create({ data });
-        created++;
-      } catch {
-        // duplicate email+website: skip silently..
+    const created = await transaction((tx) => {
+      let count = 0;
+      for (const row of rows) {
+        const data = {
+          ...toLeadDetails({
+            hotelName: row.hotel_name || row.company,
+            brandType: row.brand_type,
+            propertySizeCategory: row.property_size_category,
+            companyName: row.company,
+            jobTitle: row.job_title,
+            phone: row.phone,
+            linkedinUrl: row.linkedin_url,
+            location: row.location,
+            city: row.city,
+            state: row.state,
+            exactAddress: row.exact_address,
+            googleMapsLink: row.google_maps_link,
+            industry: row.industry,
+            googleBusinessLink: row.google_business_link,
+            tripAdvisorLink: row.tripadvisor_link,
+            bookingComLink: row.booking_com_link,
+            makeMyTripLink: row.makemytrip_link,
+            instagramLink: row.instagram_link,
+            facebookLink: row.facebook_link,
+            googleRating: row.google_rating,
+            totalReviewsCount: row.total_reviews_count,
+            sentimentScore: row.sentiment_score,
+            latitude: row.latitude,
+            longitude: row.longitude,
+          }),
+          name: row.name?.trim() ?? "",
+          website: row.website?.trim() ?? "",
+          email: row.email?.trim() ?? "",
+          project: row.project?.trim() || null,
+          source: row.source?.trim() || "CSV Import",
+        };
+        try {
+          tx.create(data);
+          count++;
+        } catch (error) {
+          // Duplicate email + website rows are skipped.
+          if (!(error instanceof DuplicateLeadError)) throw error;
+        }
       }
-    }
+      return count;
+    });
 
     return NextResponse.json({ created, skipped: rows.length - created });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Upload failed" },
-      { status:  500 }
+      { status: 500 }
     );
   }
 }

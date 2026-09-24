@@ -1,32 +1,35 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { syncLeadToHubSpot } from "@/lib/hubspot";
+import { listLeads } from "@/lib/leadDb";
+import { hubspotConfigured } from "@/lib/hubspot";
+import { needsHubSpotSync, syncLeads } from "@/lib/hubspotSync";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-export async function POST(request: Request) {
-  try {
-    const body = (await request.json().catch(() => ({}))) as { ids?: number[] };
-    const leads = await prisma.lead.findMany({
-      where: body.ids?.length ? { id: { in: body.ids } } : { status: "PERSONALIZED" },
-      take: 50,
-    });
-    let synced = 0;
-    const errors: string[] = [];
+/** Leads per request — keeps each call well inside time and rate limits. */
+const BATCH = 15;
 
-    for (const lead of leads) {
-      try {
-        const ids = await syncLeadToHubSpot(lead);
-        await prisma.lead.update({ where: { id: lead.id }, data: { hubspotContactId: ids.contactId, hubspotCompanyId: ids.companyId, hubspotSyncStatus: "SYNCED", hubspotSyncedAt: new Date(), hubspotSyncError: null } });
-        synced++;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        errors.push(`${lead.email}: ${message}`);
-        await prisma.lead.update({ where: { id: lead.id }, data: { hubspotSyncStatus: "ERROR", hubspotSyncError: message.slice(0, 500) } });
-      }
-    }
-    return NextResponse.json({ synced, attempted: leads.length, errors: errors.slice(0, 20) });
+/**
+ * POST /api/hubspot/sync — { ids?: number[], skip?: number[] }
+ * Syncs the given leads, or every lead that is new or changed since its last
+ * sync. Handles a batch per call; repeat while `remaining` > 0, passing the
+ * ids that already failed in this run as `skip` so later leads still sync.
+ */
+export async function POST(request: Request) {
+  if (!hubspotConfigured()) {
+    return NextResponse.json({ error: "HubSpot is not connected. Add a private app token in Settings." }, { status: 412 });
+  }
+  try {
+    const body = (await request.json().catch(() => ({}))) as { ids?: number[]; skip?: number[] };
+    const ids = new Set(Array.isArray(body.ids) ? body.ids : []);
+    const skip = new Set(Array.isArray(body.skip) ? body.skip : []);
+    const queue = await listLeads({
+      where: (lead) => !skip.has(lead.id) && (ids.size ? ids.has(lead.id) : true) && needsHubSpotSync(lead),
+    });
+    const batch = queue.slice(0, BATCH);
+
+    const result = await syncLeads(batch);
+    return NextResponse.json({ ...result, attempted: batch.length, remaining: queue.length - batch.length });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "HubSpot sync failed" }, { status: 500 });
   }

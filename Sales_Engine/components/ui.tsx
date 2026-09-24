@@ -122,14 +122,6 @@ export function Label({ children, className = "", ...props }: React.LabelHTMLAtt
   );
 }
 
-export function ProgressBar({ value, color = "bg-indigo-500", className = "" }: { value: number; color?: string; className?: string }) {
-  return (
-    <div className={cn("h-1.5 w-full overflow-hidden rounded-full bg-slate-800", className)}>
-      <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
-    </div>
-  );
-}
-
 export function EmptyState({ icon, title, description }: { icon?: React.ReactNode; title: string; description?: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 bg-slate-900/40 px-6 py-12 text-center">

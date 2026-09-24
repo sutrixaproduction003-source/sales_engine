@@ -1,13 +1,12 @@
-import { Clock, Globe, Send, Sparkles } from "lucide-react";
+import { Clock, Globe, Send, Sparkles, XCircle } from "lucide-react";
 import type { ComponentType } from "react";
 
 /**
- * Pipeline states — mirrored from the REAL backend contract:
- * the Prisma Lead model (LeadStatus) and GET /api/stats:
- *   PENDING → SCRAPED → PERSONALIZED → SYNCED
- * The frontend displays only states actually returned by the backend.
+ * Pipeline states (lib/leadModel LeadStatus):
+ *   PENDING → SCRAPED → PERSONALIZED (awaiting human review) → SYNCED (sent)
+ * REJECTED leads were declined in review and are never sent.
  */
-export type LeadState = "PENDING" | "SCRAPED" | "PERSONALIZED" | "SYNCED";
+export type LeadState = "PENDING" | "SCRAPED" | "PERSONALIZED" | "SYNCED" | "REJECTED";
 
 export interface StateConfig {
   label: string;
@@ -43,7 +42,7 @@ export const STATE_CONFIGS: Record<LeadState, StateConfig> = {
   },
   PERSONALIZED: {
     label: "Personalized",
-    description: "AI-generated icebreaker ready for review",
+    description: "Email drafted — waiting for human review",
     color: "emerald",
     bg: "bg-emerald-500/20",
     border: "border-emerald-500/50",
@@ -52,14 +51,24 @@ export const STATE_CONFIGS: Record<LeadState, StateConfig> = {
     icon: Sparkles,
   },
   SYNCED: {
-    label: "Outreach Sent",
-    description: "Pushed to the sending platform",
+    label: "Sent",
+    description: "Approved in review and emailed",
     color: "violet",
     bg: "bg-violet-500/10",
     border: "border-violet-500/30",
     text: "text-violet-400",
     dot: "bg-violet-400",
     icon: Send,
+  },
+  REJECTED: {
+    label: "Rejected",
+    description: "Draft rejected in review — not sent",
+    color: "rose",
+    bg: "bg-rose-500/10",
+    border: "border-rose-500/30",
+    text: "text-rose-400",
+    dot: "bg-rose-400",
+    icon: XCircle,
   },
 };
 

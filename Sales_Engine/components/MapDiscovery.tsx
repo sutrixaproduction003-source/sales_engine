@@ -1,127 +1,312 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import Papa from "papaparse";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  Globe,
+  Loader2,
+  Mail,
+  MapPin,
+  Phone,
+  Search,
+  Sparkles,
+  Star,
+  UserRoundSearch,
+  X,
+} from "lucide-react";
 import { Button, Input, Select, cn } from "@/components/ui";
-import { MapPin, RefreshCw, Search, AlertTriangle, CheckCircle2, LocateFixed, Crosshair } from "lucide-react";
-import { MapView } from "@/components/MapView";
-import { searchLeads } from "@/lib/leadService";
 import { PROJECTS, getProject } from "@/lib/projects";
-import { STATE_CONFIGS, type LeadState } from "@/lib/states";
-import type { DiscoveryLead } from "@/lib/types";
+import { buildCategoryColors, hasCoordinates, placeCategory, type ScrapedPlace } from "@/lib/places";
+import { usePlacesSearch } from "@/lib/usePlacesSearch";
+import { useAutoDraft } from "@/lib/useAutoDraft";
+import { getHubSpotStatus, syncToHubSpot } from "@/lib/hubspotClient";
+import { apolloConfigured, findBusinessContacts, type BusinessContactUpdate } from "@/lib/apolloClient";
 
-/**
- * Project-agnostic map discovery — Project + Location + categories → [Find Leads].
- * Projects (and their optional target categories) come from the project
- * registry (lib/projects) — no project names are hardcoded here, so new
- * projects work without any change to this component.
- * All data comes from OUR backend (POST /api/leads/discover → provider backend
- * → Prospeo/Hunter → normalized → geocoded → pipeline DB). No mock results.
- */
+// Leaflet touches `window` at import time, so the map is client-only.
+const LeadMap = dynamic(() => import("@/components/map/LeadMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full items-center justify-center rounded-xl border border-slate-800 bg-[#0b1120] text-sm text-slate-500">
+      Loading map…
+    </div>
+  ),
+});
 
 const DEFAULT_PROJECT_ID = PROJECTS[0]?.id ?? "";
 
-type Status = "idle" | "loading" | "success" | "empty" | "error";
+const formatElapsed = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
+function exportPlacesCsv(places: ScrapedPlace[]) {
+  const rows = places.map((p) => ({
+    Name: p.companyName,
+    Contact: p.contactName ?? "",
+    "Contact title": p.contactTitle ?? "",
+    Category: placeCategory(p),
+    "Google category": p.industry,
+    Email: p.email,
+    Phone: p.phone,
+    Website: p.companyWebsite,
+    Address: p.exactAddress,
+    City: p.city ?? "",
+    State: p.state ?? "",
+    Country: p.country ?? "",
+    Latitude: p.latitude ?? "",
+    Longitude: p.longitude ?? "",
+    "Google rating": p.googleRating ?? "",
+    Reviews: p.totalReviewsCount ?? "",
+    "Google Maps": p.googleMapsLink ?? "",
+    Instagram: p.instagramLink ?? "",
+    Facebook: p.facebookLink ?? "",
+    LinkedIn: p.linkedinUrl,
+  }));
+  const url = URL.createObjectURL(new Blob([Papa.unparse(rows)], { type: "text/csv;charset=utf-8;" }));
+  const link = Object.assign(document.createElement("a"), {
+    href: url,
+    download: `leads_${new Date().toISOString().slice(0, 10)}.csv`,
+  });
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function ResultRow({
+  place,
+  color,
+  selected,
+  onSelect,
+  onHover,
+}: {
+  place: ScrapedPlace;
+  color?: string;
+  selected: boolean;
+  onSelect: () => void;
+  onHover: (hovering: boolean) => void;
+}) {
+  const mapped = hasCoordinates(place);
+  return (
+    <button
+      onClick={onSelect}
+      onMouseEnter={() => onHover(true)}
+      onMouseLeave={() => onHover(false)}
+      disabled={!mapped}
+      title={mapped ? "Show on map" : "No map location for this business"}
+      className={cn(
+        "w-full rounded-lg border px-3 py-2 text-left text-xs transition",
+        selected
+          ? "border-sky-500/50 bg-sky-500/10"
+          : "border-slate-800 bg-slate-900/50 hover:border-slate-600 disabled:hover:border-slate-800"
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color ?? "#94a3b8" }} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <p className="truncate font-medium text-slate-100">{place.companyName}</p>
+            {typeof place.googleRating === "number" && (
+              <span className="flex shrink-0 items-center gap-0.5 text-amber-300">
+                <Star className="h-3 w-3 fill-current" /> {place.googleRating.toFixed(1)}
+              </span>
+            )}
+          </div>
+          {place.contactName && (
+            <p className="truncate text-sky-300">
+              {place.contactName}
+              {place.contactTitle && <span className="text-slate-500"> · {place.contactTitle}</span>}
+            </p>
+          )}
+          <p className="truncate text-slate-500">{place.exactAddress || place.location || "Address unavailable"}</p>
+          <div className="mt-1 flex items-center gap-2.5 text-slate-500">
+            <span title={place.email || "No email"} className={place.email ? "text-emerald-400" : "text-slate-700"}>
+              <Mail className="h-3.5 w-3.5" />
+            </span>
+            <span title={place.phone || "No phone"} className={place.phone ? "text-emerald-400" : "text-slate-700"}>
+              <Phone className="h-3.5 w-3.5" />
+            </span>
+            <span title={place.companyWebsite || "No website"} className={place.companyWebsite ? "text-emerald-400" : "text-slate-700"}>
+              <Globe className="h-3.5 w-3.5" />
+            </span>
+            <span className="ml-auto truncate text-[10px] uppercase tracking-wide">{placeCategory(place)}</span>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+/**
+ * Lead discovery on the map: Location + Project → scrape Google Maps for the
+ * project's business categories → businesses pinned at their exact location
+ * and saved to the pipeline.
+ */
 export function MapDiscovery() {
   const [location, setLocation] = useState("");
   const [projectId, setProjectId] = useState(DEFAULT_PROJECT_ID);
   const [categories, setCategories] = useState<string[]>([]);
-  const [status, setStatus] = useState<Status>("idle");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [results, setResults] = useState<DiscoveryLead[]>([]);
-  const [meta, setMeta] = useState<{ saved: number; duplicates: number; geocoded: number } | null>(null);
-  const [focusId, setFocusId] = useState<string | null>(null);
+  const [keyword, setKeyword] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [fitKey, setFitKey] = useState(0);
+  const [filter, setFilter] = useState("");
+
+  const { status, run, places: scrapedPlaces, error, elapsed, search, cancel } = usePlacesSearch();
+  const [apolloReady, setApolloReady] = useState<boolean | null>(null);
+  const [apolloPhones, setApolloPhones] = useState(true);
+  const [apollo, setApollo] = useState<{ running: boolean; text: string; error?: string } | null>(null);
+  const [contacts, setContacts] = useState<Record<number, BusinessContactUpdate>>({});
+
+  useEffect(() => {
+    apolloConfigured().then(setApolloReady);
+  }, []);
+
+  // Businesses with a decision-maker found on Apollo show that person's details.
+  const places = useMemo(
+    () =>
+      scrapedPlaces.map((p) => {
+        const c = p.dbId != null ? contacts[p.dbId] : undefined;
+        if (!c) return p;
+        return {
+          ...p,
+          contactName: c.name ?? p.contactName,
+          contactTitle: c.jobTitle ?? p.contactTitle,
+          email: c.email || p.email,
+          phone: c.phone || p.phone,
+          phoneStatus: c.phoneStatus ?? p.phoneStatus,
+        };
+      }),
+    [scrapedPlaces, contacts]
+  );
+  const busy = status === "starting" || status === "scraping";
+  const fromOsm = run?.source === "openstreetmap";
+  const fromApollo = run?.source === "apollo";
+  const fallbackSource = fromOsm ? "OpenStreetMap" : fromApollo ? "Apollo" : null;
+  const approximatePins = places.filter((p) => p.locationApproximate).length;
+  const drafts = useAutoDraft();
+
+  // Every scrape flows straight into drafting: businesses with an email get a
+  // personalized draft that waits in the Review Queue (nothing is sent).
+  const { draftAll, reset: resetDrafts } = drafts;
+  useEffect(() => {
+    if (status === "done" && run?.done && !run.saveError) {
+      const ids = run.places.map((p) => p.dbId).filter((id): id is number => typeof id === "number");
+      // Then, with HubSpot auto-sync on, the new leads go straight into the CRM.
+      draftAll(run.places)
+        .then(() => getHubSpotStatus())
+        .then((hubspot) => (hubspot.connected && hubspot.autoSync && ids.length ? syncToHubSpot(ids) : null))
+        .catch((error) => console.error("HubSpot sync after scrape failed:", error));
+    }
+    if (status === "starting") {
+      resetDrafts();
+      setContacts({});
+      setApollo(null);
+    }
+  }, [status, run, draftAll, resetDrafts]);
 
   const project = getProject(projectId);
   const projectCategories = project?.requirements.categories ?? [];
+  const needsKeyword = projectCategories.length === 0;
+
+  const colors = useMemo(() => buildCategoryColors(places), [places]);
+  const shown = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return places;
+    return places.filter((p) =>
+      `${p.companyName} ${p.exactAddress} ${p.industry} ${placeCategory(p)}`.toLowerCase().includes(q)
+    );
+  }, [places, filter]);
+
+  const stats = useMemo(
+    () => ({
+      mapped: places.filter(hasCoordinates).length,
+      withEmail: places.filter((p) => p.email).length,
+      withPhone: places.filter((p) => p.phone).length,
+    }),
+    [places]
+  );
+
+  // Apollo fallback: saved businesses with a website but no email or phone.
+  const missingContacts = useMemo(
+    () =>
+      places.filter(
+        (p) =>
+          p.dbId != null &&
+          p.companyWebsite &&
+          !p.contactName &&
+          p.status !== "SYNCED" &&
+          p.status !== "REJECTED" &&
+          (!p.email || !p.phone)
+      ),
+    [places]
+  );
+
+  const findContacts = async () => {
+    const ids = missingContacts.map((p) => p.dbId as number);
+    const found = new Map<number, BusinessContactUpdate>();
+    setApollo({ running: true, text: "Starting Apollo lookups…" });
+    try {
+      const res = await findBusinessContacts(
+        ids,
+        { phone: apolloPhones, project: projectId },
+        (text) => setApollo({ running: true, text }),
+        (id, contact) => {
+          found.set(id, { ...found.get(id), ...contact });
+          setContacts((current) => ({ ...current, [id]: { ...current[id], ...contact } }));
+        }
+      );
+      setApollo({
+        running: false,
+        text:
+          `Apollo found ${res.contacts} decision-makers for ${ids.length} businesses · ${res.emails} work emails` +
+          (apolloPhones ? ` · ${res.phones} mobile numbers` : "") +
+          (res.pending ? ` · ${res.pending} mobiles still coming (collect them in Leads Hub)` : ""),
+        error: res.error,
+      });
+      // Re-draft for the person found: addressed by name, to their own email.
+      const redraft = places
+        .filter((p) => p.dbId != null && found.has(p.dbId))
+        .map((p) => ({ ...p, email: found.get(p.dbId as number)?.email || p.email, status: "PENDING" as const }))
+        .filter((p) => p.email);
+      if (redraft.length) draftAll(redraft);
+    } catch (err) {
+      setApollo({ running: false, text: "", error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  const canSearch = location.trim().length > 0 && (!needsKeyword || keyword.trim().length > 0) && !busy;
+
+  const findLeads = async () => {
+    if (!canSearch) return;
+    setSelectedId(null);
+    setFilter("");
+    await search({ project: projectId, location: location.trim(), categories, keyword });
+    setFitKey((k) => k + 1);
+  };
 
   const toggleCategory = (c: string) =>
     setCategories((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
 
-  const findLeads = async () => {
-    setStatus("loading");
-    setErrorMsg(null);
-    setFocusId(null);
-    try {
-      const data = await searchLeads({
-        project: projectId,
-        filters: {
-          location: location.trim() || undefined,
-          categories: projectCategories.length > 0 ? categories : undefined,
-        },
-        page: 1,
-      });
-      setResults(data.leads ?? []);
-      setMeta({
-        saved: data.saved ?? 0,
-        duplicates: data.duplicates ?? 0,
-        geocoded: data.geocoded ?? 0,
-      });
-      setStatus((data.leads ?? []).length > 0 ? "success" : "empty");
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Unable to load leads. Please try again.");
-      setStatus("error");
-    }
-  };
-
-  const pinsWithCoords = useMemo(
-    () => results.filter((l) => typeof l.latitude === "number" && typeof l.longitude === "number"),
-    [results]
-  );
-
-  const banner = (() => {
-    switch (status) {
-      case "idle":
-        return { tone: "text-slate-400", text: "Select a project and location to discover leads." };
-      case "loading":
-        return { tone: "text-indigo-300", text: "Finding leads..." };
-      case "success": {
-        const mapped = pinsWithCoords.length;
-        if (results.length > 0 && mapped === 0) {
-          return {
-            tone: "text-amber-300",
-            text: "Leads found, but location coordinates are unavailable.",
-          };
-        }
-        return {
-          tone: "text-emerald-300",
-          text: `${results.length} leads found · ${mapped}/${results.length} locations mapped · ${
-            meta?.saved ?? 0
-          } saved to pipeline${
-            meta && meta.duplicates > 0 ? ` · ${meta.duplicates} duplicates skipped` : ""
-          }${meta && meta.geocoded > 0 ? ` · ${meta.geocoded} geocoded` : ""}`,
-        };
-      }
-      case "empty":
-        return { tone: "text-amber-300", text: "No mappable locations found for the selected search." };
-      case "error":
-        return { tone: "text-rose-300", text: errorMsg ?? "Unable to load leads. Please try again." };
-    }
-  })();
-
   return (
     <div className="space-y-3">
-      {/* Discovery controls */}
+      {/* Search controls */}
       <div className="flex flex-wrap items-end gap-2">
-        <div className="w-full sm:w-56">
-          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">
-            Location
-          </label>
+        <div className="min-w-[14rem] flex-1">
+          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">Location</label>
           <div className="relative">
             <MapPin className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
             <Input
               value={location}
               onChange={(e) => setLocation(e.target.value)}
-              placeholder="Search/select location"
+              placeholder="City, area or region — e.g. Goa, India"
               className="pl-8"
               onKeyDown={(e) => e.key === "Enter" && findLeads()}
             />
           </div>
         </div>
         <div className="w-full sm:w-44">
-          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">
-            Project
-          </label>
+          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">Project</label>
           <Select
             value={projectId}
             onChange={(e) => {
@@ -137,34 +322,47 @@ export function MapDiscovery() {
             ))}
           </Select>
         </div>
-        <Button onClick={findLeads} loading={status === "loading"} disabled={status === "loading"}>
-          {status === "loading" ? (
-            <>
-              <RefreshCw className="h-4 w-4 animate-spin" /> Finding...
-            </>
-          ) : (
-            <>
-              <Search className="h-4 w-4" /> Find Leads
-            </>
-          )}
-        </Button>
+        {needsKeyword && (
+          <div className="w-full sm:w-48">
+            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">
+              Business type
+            </label>
+            <Input
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder="e.g. hotels, gyms"
+              onKeyDown={(e) => e.key === "Enter" && findLeads()}
+            />
+          </div>
+        )}
+        {busy ? (
+          <Button variant="secondary" onClick={cancel}>
+            <X className="h-4 w-4" /> Stop waiting
+          </Button>
+        ) : (
+          <Button onClick={findLeads} disabled={!canSearch}>
+            <Search className="h-4 w-4" /> Find leads
+          </Button>
+        )}
       </div>
 
-      {/* Project target categories (from the project registry — generic) */}
       {projectCategories.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 text-xs text-slate-500">Target categories:</span>
+          <span className="mr-1 text-xs text-slate-500">
+            Searching for {categories.length ? "" : "all of"}:
+          </span>
           {projectCategories.map((c) => {
-            const active = categories.includes(c);
+            const active = categories.length === 0 || categories.includes(c);
             return (
               <button
                 key={c}
                 onClick={() => toggleCategory(c)}
+                disabled={busy}
                 className={cn(
                   "rounded-full border px-2.5 py-1 text-xs font-medium transition",
                   active
                     ? "border-sky-500/40 bg-sky-500/15 text-sky-300"
-                    : "border-slate-700 bg-slate-900 text-slate-400 hover:border-slate-600 hover:text-slate-200"
+                    : "border-slate-700 bg-slate-900 text-slate-500 hover:text-slate-300"
                 )}
               >
                 {c}
@@ -174,109 +372,191 @@ export function MapDiscovery() {
         </div>
       )}
 
-      {/* Status banner — idle / loading / success / empty / error */}
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        {status === "success" ? (
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-        ) : status === "error" ? (
-          <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
-        ) : status === "empty" ? (
-          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
-        ) : null}
-        <span className={banner.tone}>{banner.text}</span>
+      {/* Status */}
+      <div className="flex min-h-[1.5rem] flex-wrap items-center gap-2 text-sm">
+        {status === "idle" && (
+          <span className="text-slate-400">
+            Enter a location and pick a project — matching businesses are scraped from Google Maps and pinned on the map.
+          </span>
+        )}
+        {busy && (
+          <span className="flex items-center gap-2 text-sky-300">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {status === "starting" ? "Starting scrape…" : fallbackSource ? `Searching ${fallbackSource}` : "Scraping Google Maps"} ·{" "}
+            {formatElapsed(elapsed)}
+            <span className="text-xs text-slate-500">({fallbackSource ? "usually under a minute" : "usually 1–3 minutes"})</span>
+          </span>
+        )}
+        {fromApollo && status !== "idle" && status !== "error" && (
+          <span className="basis-full text-xs text-amber-300/90">
+            {run?.fallbackReason || "Google Maps unavailable"} — using Apollo company data instead (website, phone and
+            LinkedIn; no ratings).
+            {approximatePins > 0 && ` ${approximatePins} pins are approximate (near the city centre) — Apollo has no exact address for them.`}
+          </span>
+        )}
+        {fromOsm && status !== "idle" && status !== "error" && (
+          <span className="basis-full text-xs text-amber-300/90">
+            {run?.fallbackReason || "Google Maps unavailable"} — using free OpenStreetMap data instead (no ratings; fewer
+            emails and phones).{" "}
+            <a
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-slate-400 underline hover:text-slate-200"
+            >
+              © OpenStreetMap contributors
+            </a>
+          </span>
+        )}
         {status === "error" && (
-          <Button variant="secondary" className="!px-2.5 !py-1 text-xs" onClick={findLeads}>
-            Retry
-          </Button>
+          <>
+            <AlertTriangle className="h-4 w-4 text-rose-400" />
+            <span className="text-rose-300">{error}</span>
+            <Button variant="secondary" className="!px-2.5 !py-1 text-xs" onClick={findLeads}>
+              Retry
+            </Button>
+          </>
+        )}
+        {status === "done" && (
+          <>
+            {places.length ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 text-amber-400" />
+            )}
+            <span className={places.length ? "text-emerald-300" : "text-amber-300"}>
+              {places.length
+                ? `${places.length} businesses found · ${stats.withEmail} with email · ${stats.withPhone} with phone`
+                : "No businesses found — try a broader location."}
+            </span>
+            {run?.saveError ? (
+              <span className="text-xs text-amber-400">{run.saveError}</span>
+            ) : (
+              places.length > 0 && (
+                <span className="text-xs text-slate-500">
+                  {run?.saved ?? 0} new saved to pipeline{run?.updated ? ` · ${run.updated} already known` : ""}
+                </span>
+              )
+            )}
+          </>
         )}
       </div>
 
-      {/* Dynamic map — markers only from real, verified coordinates */}
-      <div className="h-72 overflow-hidden rounded-lg">
-        <MapView
-          leads={results}
-          focusId={focusId}
-          loading={status === "loading"}
-          error={status === "error" ? errorMsg : null}
-        />
-      </div>
-
-      {/* Dynamic result list */}
-      {results.length > 0 && (
-        <div>
-          <div className="mb-1.5 flex items-center justify-between">
-            <p className="text-xs font-semibold text-slate-300">
-              Results <span className="text-slate-500">({results.length})</span>
-            </p>
-            <p className="text-[11px] text-slate-500">
-              {pinsWithCoords.length} of {results.length} have map coordinates
-            </p>
-          </div>
-          <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
-            {results.map((lead, i) => {
-              const hasCoords =
-                typeof lead.latitude === "number" && typeof lead.longitude === "number";
-              return (
-                <div
-                  key={`${lead.id}-${i}`}
-                  className={cn(
-                    "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs transition",
-                    focusId === lead.id
-                      ? "border-indigo-500/40 bg-indigo-500/10"
-                      : "border-slate-800 bg-slate-900/50 hover:border-slate-700"
-                  )}
+      {status === "done" && (missingContacts.length > 0 || apollo) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-sm">
+          {apollo?.running ? (
+            <Loader2 className="h-4 w-4 animate-spin text-amber-300" />
+          ) : (
+            <UserRoundSearch className="h-4 w-4 text-amber-300" />
+          )}
+          {apollo ? (
+            <span className="text-amber-100">
+              {apollo.text}
+              {apollo.error && <span className="text-rose-300"> — {apollo.error}</span>}
+            </span>
+          ) : (
+            <span className="text-amber-100">
+              {missingContacts.length} businesses have no email or phone. Find a decision-maker&apos;s work email
+              {apolloPhones ? " and mobile" : ""} with Apollo.
+            </span>
+          )}
+          {!apollo?.running && missingContacts.length > 0 && (
+            apolloReady ? (
+              <span className="ml-auto flex items-center gap-3">
+                <label className="flex items-center gap-1.5 text-xs text-slate-300" title="Up to 8 Apollo credits per mobile found">
+                  <input type="checkbox" checked={apolloPhones} onChange={(e) => setApolloPhones(e.target.checked)} />
+                  Include mobile numbers
+                </label>
+                <Button
+                  variant="secondary"
+                  className="!px-2.5 !py-1 text-xs"
+                  onClick={findContacts}
+                  disabled={drafts.running}
+                  title={`1 Apollo credit per person found${apolloPhones ? " + up to 8 per mobile" : ""}`}
                 >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium text-slate-100">
-                      {lead.companyName || lead.fullName || "N/A"}
-                    </p>
-                    <p className="truncate text-slate-500">
-                      {lead.fullName || "N/A"}
-                      {lead.jobTitle ? ` · ${lead.jobTitle}` : ""}
-                      {lead.industry ? ` · ${lead.industry}` : ""}
-                    </p>
-                    <p className="truncate text-slate-500">
-                      {hasCoords ? (
-                        lead.location || "Coordinates only"
-                      ) : (
-                        <span className="text-amber-400/80">Location unavailable</span>
-                      )}
-                    </p>
-                  </div>
-                  <div className="flex flex-col items-end gap-0.5">
-                    <span className="text-[10px] uppercase tracking-wide text-slate-500">
-                      Provider: {lead.source || "N/A"}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] text-slate-300">
-                        {lead.state === "NEW"
-                          ? "Discovered"
-                          : (STATE_CONFIGS[lead.state as LeadState]?.label ?? lead.state ?? "NEW")}
-                      </span>
-                      {hasCoords ? (
-                        <button
-                          onClick={() => setFocusId(lead.id)}
-                          title="Center map on this lead"
-                          className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] text-slate-300 hover:border-indigo-500/40 hover:text-white"
-                        >
-                          <Crosshair className="h-3 w-3" /> Focus
-                        </button>
-                      ) : (
-                        <span
-                          title="No coordinates returned by the backend"
-                          className="inline-flex cursor-not-allowed items-center gap-1 rounded-md border border-slate-800 bg-slate-900 px-2 py-0.5 text-[10px] text-slate-600"
-                        >
-                          <LocateFixed className="h-3 w-3" /> Focus
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                  Find contacts ({missingContacts.length})
+                </Button>
+              </span>
+            ) : (
+              apolloReady === false && (
+                <Link href="/settings" className="ml-auto text-xs text-sky-300 hover:underline">
+                  Add your Apollo key in Settings →
+                </Link>
+              )
+            )
+          )}
         </div>
       )}
+
+      {(drafts.running || drafts.total > 0) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-violet-500/25 bg-violet-500/10 px-3 py-2 text-sm">
+          {drafts.running ? (
+            <Loader2 className="h-4 w-4 animate-spin text-violet-300" />
+          ) : (
+            <Sparkles className="h-4 w-4 text-violet-300" />
+          )}
+          <span className="text-violet-200">
+            {drafts.running
+              ? `Drafting personalized emails · ${drafts.done}/${drafts.total}`
+              : `${drafts.total - drafts.failed} email drafts ready for your review`}
+            {drafts.failed > 0 && ` · ${drafts.failed} failed`}
+          </span>
+          {drafts.lastError && <span className="text-xs text-rose-300">{drafts.lastError}</span>}
+          <Link href="/review" className="ml-auto text-sm font-medium text-sky-300 hover:underline">
+            Open Review Queue →
+          </Link>
+        </div>
+      )}
+
+      {/* Results list + map */}
+      <div className="grid gap-3 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="flex h-[360px] flex-col rounded-xl border border-slate-800 bg-slate-950/40 lg:h-[620px]">
+          <div className="flex items-center gap-2 border-b border-slate-800 p-2">
+            <Input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder={places.length ? `Filter ${places.length} results…` : "Results appear here"}
+              disabled={!places.length}
+              className="!py-1.5 text-xs"
+            />
+            <Button
+              variant="ghost"
+              className="!px-2 !py-1.5"
+              onClick={() => exportPlacesCsv(places)}
+              disabled={!places.length}
+              title="Export results as CSV"
+            >
+              <Download className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="flex-1 space-y-1.5 overflow-y-auto p-2">
+            {shown.map((place) => (
+              <ResultRow
+                key={place.id}
+                place={place}
+                color={colors.get(placeCategory(place))}
+                selected={place.id === selectedId}
+                onSelect={() => setSelectedId(place.id)}
+                onHover={(hovering) => setHoveredId(hovering ? place.id : null)}
+              />
+            ))}
+            {!places.length && (
+              <p className="px-2 py-8 text-center text-xs text-slate-600">
+                {busy ? "Waiting for results…" : "No results yet."}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <LeadMap
+          places={places}
+          selectedId={selectedId}
+          hoveredId={hoveredId}
+          onSelect={setSelectedId}
+          fitKey={fitKey}
+          className="h-[480px] lg:h-[620px]"
+        />
+      </div>
     </div>
   );
 }

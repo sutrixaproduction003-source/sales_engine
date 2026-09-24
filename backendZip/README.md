@@ -1,6 +1,8 @@
 # CRM Lead Enrichment Backend
 
-This project provides a Node.js + Express backend for lead search, enrichment, and email validation using Prospeo and Hunter behind a single API layer.
+This project provides a Node.js + Express backend for lead search and enrichment using Apollo behind a single provider API layer, plus Apify scrapers.
+
+LinkedIn Sales Navigator is used from the frontend through search deep links (it has no public search API), so it needs no backend configuration.
 
 ## Installation
 
@@ -14,26 +16,18 @@ cp .env.example .env
 Create a `.env` file with values like:
 
 ```env
-PROSPEO_API_KEY=
-HUNTER_API_KEY=
+APOLLO_API_KEY=
+APIFY_TOKEN=
 PORT=5000
 ```
 
 ## Obtain API keys
 
-### Prospeo
+### Apollo
 
-1. Sign up or log in to the Prospeo dashboard.
-2. Navigate to API settings or developer access.
-3. Copy the API key and save it in `.env`.
-4. Keep the key server-side only.
-
-### Hunter
-
-1. Sign up for a Hunter account.
-2. Open the API dashboard.
-3. Generate a new API key and save it to `.env`.
-4. Do not expose it in frontend code or commit it to Git.
+1. Log in to Apollo and open Settings → Integrations → API.
+2. Create an API key and save it in `.env` as `APOLLO_API_KEY`.
+3. Keep the key server-side only.
 
 ## Start backend
 
@@ -55,7 +49,11 @@ npm run dev
 - `POST /api/leads/email-finder`
 - `POST /api/leads/email-verify`
 - `POST /api/companies/search`
+- `GET /api/providers/:provider/account`
 - `PATCH /api/leads/:id/status`
+- `POST /api/scrapers` (Apify: `instagram`, `facebook`, `googleMapsReviews`, `makemytripReviews`, `makemytripHotels`; needs `APIFY_TOKEN`)
+
+The same scrapers are exposed as an MCP stdio server via `npm run mcp`.
 
 ## Example requests
 
@@ -65,7 +63,7 @@ npm run dev
 curl -X POST http://localhost:5000/api/leads/search \
   -H "Content-Type: application/json" \
   -d '{
-    "provider": "prospeo",
+    "provider": "apollo",
     "filters": { "job_title": "CEO" },
     "page": 1
   }'
@@ -77,7 +75,7 @@ curl -X POST http://localhost:5000/api/leads/search \
 curl -X POST http://localhost:5000/api/leads/enrich \
   -H "Content-Type: application/json" \
   -d '{
-    "provider": "prospeo",
+    "provider": "apollo",
     "firstName": "John",
     "lastName": "Doe",
     "companyWebsite": "example.com"
@@ -114,10 +112,6 @@ Error:
 - Use authentication for internal API access.
 - Avoid logging API keys or raw sensitive lead data.
 
-## Prospeo free-plan notes
+## Email tools
 
-Prospeo is treated as a provider-specific service with a dedicated client. For free-plan access, check the service's current public documentation before relying on a given endpoint or feature.
-
-## Hunter free-plan notes
-
-Hunter's public docs provide free access to some capabilities and usage limits vary by plan. The implementation matches the official API contract and returns clear errors when a capability is unavailable.
+`find-email` and `verify-email` are kept as stubs: no configured provider supports them, so they return `400 PROVIDER_CAPABILITY_UNSUPPORTED`. Apollo enrichment still returns emails where available.

@@ -1,19 +1,20 @@
 {
   "name": "crm-lead-enrichment-backend",
   "version": "1.0.0",
-  "description": "CRM lead enrichment backend with Prospeo and Hunter integrations",
+  "description": "CRM lead enrichment backend with Apollo and Apify integrations",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "mcp": "node src/mcp_scrapers.js"
   },
   "keywords": [
     "crm",
     "lead-enrichment",
-    "prospeo",
-    "hunter",
-    "express"
+    "express",
+    "apollo",
+    "apify"
   ],
   "author": "",
   "license": "MIT",
@@ -25,7 +26,6 @@
     "express": "^4.19.2",
     "express-rate-limit": "^7.4.1",
     "helmet": "^8.0.0",
-    "joi": "^17.6.0",
     "morgan": "^1.10.0"
   },
   "devDependencies": {

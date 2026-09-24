@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { LeadStatus } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { getLead, listLeads, updateLead } from "@/lib/leadDb";
 import { scoreLead } from "@/lib/scoring";
 
 export const runtime = "nodejs";
@@ -20,9 +19,7 @@ async function handleBatchScore(request: Request) {
 
   try {
     // Fetch leads to score
-    const leads = await prisma.lead.findMany({
-      where: status ? { status: status as LeadStatus } : {},
-    });
+    const leads = await listLeads({ where: (lead) => !status || lead.status === status });
 
     if (leads.length === 0) {
       return NextResponse.json({
@@ -43,17 +40,14 @@ async function handleBatchScore(request: Request) {
         industry: lead.industry ?? undefined,
       });
 
-      await prisma.lead.update({
-        where: { id: lead.id },
-        data: {
-          businessType: scoring.businessType,
-          classification: scoring.classification,
-          decisionMakerTier: scoring.decisionMakerTier,
-          relevanceScore: scoring.relevanceScore,
-          intentScore: scoring.intentScore,
-          buyingPowerScore: scoring.buyingPowerScore,
-          intentSignals: JSON.stringify(scoring.intentSignals),
-        },
+      await updateLead(lead.id, {
+        businessType: scoring.businessType,
+        classification: scoring.classification,
+        decisionMakerTier: scoring.decisionMakerTier,
+        relevanceScore: scoring.relevanceScore,
+        intentScore: scoring.intentScore,
+        buyingPowerScore: scoring.buyingPowerScore,
+        intentSignals: JSON.stringify(scoring.intentSignals),
       });
 
       scored++;
@@ -89,7 +83,7 @@ export async function POST(request: Request) {
 
   try {
     // Fetch the lead
-    const lead = await prisma.lead.findUnique({ where: { id } });
+    const lead = await getLead(id);
     if (!lead) {
       return NextResponse.json({ error: "Lead not found" }, { status: 404 });
     }
@@ -104,17 +98,14 @@ export async function POST(request: Request) {
     });
 
     // Update the lead with scoring data
-    const updated = await prisma.lead.update({
-      where: { id },
-      data: {
-        businessType: scoring.businessType,
-        classification: scoring.classification,
-        decisionMakerTier: scoring.decisionMakerTier,
-        relevanceScore: scoring.relevanceScore,
-        intentScore: scoring.intentScore,
-        buyingPowerScore: scoring.buyingPowerScore,
-        intentSignals: JSON.stringify(scoring.intentSignals),
-      },
+    const updated = await updateLead(id, {
+      businessType: scoring.businessType,
+      classification: scoring.classification,
+      decisionMakerTier: scoring.decisionMakerTier,
+      relevanceScore: scoring.relevanceScore,
+      intentScore: scoring.intentScore,
+      buyingPowerScore: scoring.buyingPowerScore,
+      intentSignals: JSON.stringify(scoring.intentSignals),
     });
 
     return NextResponse.json({

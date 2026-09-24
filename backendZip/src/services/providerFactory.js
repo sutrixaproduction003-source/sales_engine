@@ -1,133 +1,55 @@
 /**
- * Provider Factory
- *
- * Central registry for all Sales Engine data providers.
- *
- * Supported providers:
- *   - Prospeo
- *   - Hunter
- *   - Apollo
- *
- * Usage:
- *
- *   const providerFactory = require('./providerFactory');
- *
- *   const provider = providerFactory.getProvider('apollo');
- *
- * The factory returns a single initialized provider instance.
+ * Central registry of Sales Engine data providers. One instance per provider
+ * is created at startup so axios clients are reused across requests.
  */
 
-const ProspeoProvider = require('./providers/ProspeoProvider');
-const HunterProvider = require('./providers/HunterProvider');
 const ApolloProvider = require('./providers/ApolloProvider');
+const { createError } = require('../utils/errors');
 
-/**
- * Create one instance of each provider.
- *
- * Keeping provider instances here avoids repeatedly creating
- * Axios clients / provider objects for every request.
- */
 const providers = {
-  prospeo: new ProspeoProvider(),
-  hunter: new HunterProvider(),
   apollo: new ApolloProvider(),
 };
 
-/**
- * Normalize provider names coming from the frontend/backend.
- *
- * Examples:
- *   "Apollo"  -> "apollo"
- *   "APOLLO"  -> "apollo"
- *   "apollo"  -> "apollo"
- */
-function normalizeProviderName(providerName) {
-  if (providerName === undefined || providerName === null) {
-    return "";
-  }
+const SUPPORTED = Object.keys(providers).join(', ');
 
-  return String(providerName).trim().toLowerCase();
+/** "Apollo" / " APOLLO " -> "apollo" */
+function normalizeProviderName(providerName) {
+  return providerName === undefined || providerName === null ? '' : String(providerName).trim().toLowerCase();
 }
 
 /**
- * Return a provider instance by name.
- *
- * @param {string} providerName
- * @returns {object}
+ * Return a provider instance by name. Throws a 400 error for a missing or
+ * unknown provider.
  */
 function getProvider(providerName) {
-  const normalizedName = normalizeProviderName(providerName);
+  const name = normalizeProviderName(providerName);
 
-  if (!normalizedName) {
-    const error = new Error(
-      "Provider is required. Supported providers: prospeo, hunter, apollo."
-    );
-
-    error.code = "PROVIDER_REQUIRED";
-    error.statusCode = 400;
-
-    throw error;
+  if (!name) {
+    throw createError(`Provider is required. Supported providers: ${SUPPORTED}.`, 'PROVIDER_REQUIRED', 400);
   }
 
-  const provider = providers[normalizedName];
-
+  const provider = providers[name];
   if (!provider) {
-    const error = new Error(
-      `Unsupported provider "${providerName}". Supported providers: prospeo, hunter, apollo.`
+    throw createError(
+      `Unsupported provider "${providerName}". Supported providers: ${SUPPORTED}.`,
+      'UNSUPPORTED_PROVIDER',
+      400,
+      { provider: name }
     );
-
-    error.code = "UNSUPPORTED_PROVIDER";
-    error.statusCode = 400;
-    error.provider = normalizedName;
-
-    throw error;
   }
 
   return provider;
 }
 
-/**
- * Check whether a provider exists in the factory.
- *
- * @param {string} providerName
- * @returns {boolean}
- */
-function hasProvider(providerName) {
-  const normalizedName = normalizeProviderName(providerName);
-
-  return Boolean(normalizedName && providers[normalizedName]);
-}
-
-/**
- * Return the names of all registered providers.
- *
- * @returns {string[]}
- */
-function getProviderNames() {
-  return Object.keys(providers);
-}
-
-/**
- * Return a simple provider configuration/status object.
- *
- * This does not expose API keys.
- */
-function getProviderStatus(providerName) {
-  const provider = getProvider(providerName);
-
-  return {
-    name: normalizeProviderName(providerName),
-    configured:
-      typeof provider.isConfigured === "function"
-        ? provider.isConfigured()
-        : true,
-  };
+/** Configuration status of every provider, keyed by name. Never exposes keys. */
+function getProviderStatuses() {
+  return Object.fromEntries(
+    Object.entries(providers).map(([name, provider]) => [name, { configured: provider.isConfigured() }])
+  );
 }
 
 module.exports = {
-  providers,
+  normalizeProviderName,
   getProvider,
-  hasProvider,
-  getProviderNames,
-  getProviderStatus,
+  getProviderStatuses,
 };

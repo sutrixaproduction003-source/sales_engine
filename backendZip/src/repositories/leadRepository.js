@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { leadsDataDir } = require('../config/env');
 
 /**
  * Smallest viable file-backed lead store for the Sales Engine backend.
@@ -9,8 +10,10 @@ const path = require('path');
  * configured providers (search/enrich), keyed by their normalized id.
  */
 
-const DATA_DIR = process.env.LEADS_DATA_DIR || path.join(__dirname, '..', '..', 'data');
-const DATA_FILE = path.join(DATA_DIR, 'leads.json');
+const DATA_FILE = path.join(leadsDataDir, 'leads.json');
+
+/** Pipeline statuses accepted by PATCH /leads/:id/status. */
+const LEAD_STATUSES = ['NEW', 'ENRICHED', 'VERIFIED', 'CONTACTED', 'QUALIFIED', 'CONVERTED'];
 
 function readAll() {
   try {
@@ -23,7 +26,7 @@ function readAll() {
 }
 
 function writeAll(leads) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(leadsDataDir, { recursive: true });
   fs.writeFileSync(DATA_FILE, `${JSON.stringify(leads, null, 2)}\n`, 'utf8');
 }
 
@@ -32,33 +35,30 @@ const keyOf = (id) => String(id);
 /**
  * Insert or update leads. Existing leads keep their pipeline status so a
  * re-discovery never resets a status set via PATCH /leads/:id/status.
- * Returns the stored leads.
+ * Returns the stored leads plus how many were new vs already known.
  */
 function upsertMany(leads) {
-  if (!Array.isArray(leads) || leads.length === 0) return [];
+  const result = { leads: [], created: 0, updated: 0 };
+  if (!Array.isArray(leads) || leads.length === 0) return result;
 
-  const all = readAll();
-  const index = new Map(all.map((lead) => [keyOf(lead.id), lead]));
-  const stored = [];
+  const index = new Map(readAll().map((lead) => [keyOf(lead.id), lead]));
 
   for (const lead of leads) {
     if (!lead || lead.id === undefined || lead.id === null || lead.id === '') continue;
     const key = keyOf(lead.id);
     const existing = index.get(key);
-    if (existing) {
-      // Refresh lead fields, keep the existing pipeline status.
-      const merged = { ...lead, id: existing.id, status: existing.status };
-      index.set(key, merged);
-      stored.push(merged);
-    } else {
-      const created = { ...lead, id: key, status: 'NEW' };
-      index.set(key, created);
-      stored.push(created);
-    }
+
+    const stored = existing
+      ? { ...lead, id: existing.id, status: existing.status }
+      : { ...lead, id: key, status: 'NEW' };
+
+    index.set(key, stored);
+    result.leads.push(stored);
+    result[existing ? 'updated' : 'created'] += 1;
   }
 
   writeAll(Array.from(index.values()));
-  return stored;
+  return result;
 }
 
 function findById(id) {
@@ -67,7 +67,7 @@ function findById(id) {
 
 /**
  * Update the pipeline status of one lead. Returns the updated lead, or null
- * when the lead does not exist (the service maps that to 404).
+ * when the lead does not exist.
  */
 function updateStatus(id, status) {
   const all = readAll();
@@ -80,4 +80,4 @@ function updateStatus(id, status) {
   return lead;
 }
 
-module.exports = { upsertMany, findById, updateStatus };
+module.exports = { LEAD_STATUSES, upsertMany, findById, updateStatus };
