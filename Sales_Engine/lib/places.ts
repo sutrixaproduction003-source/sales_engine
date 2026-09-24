@@ -22,6 +22,8 @@ export interface ScrapedPlace {
   /** Every public email found on the business website. */
   emails?: string[];
   phone: string;
+  /** Pinned near the city centre: the source had no exact address (Apollo). */
+  locationApproximate?: boolean;
   /** Decision-maker found with Apollo (shown on the map; saved on the lead). */
   contactName?: string | null;
   contactTitle?: string | null;
@@ -54,7 +56,7 @@ export interface PlacesRun {
   places: ScrapedPlace[];
   startedAt?: string;
   /** Where results come from: Google Maps (Apify), or the free OpenStreetMap fallback. */
-  source?: "google_maps" | "openstreetmap";
+  source?: "google_maps" | "apollo" | "openstreetmap";
   /** Why the fallback was used, e.g. "Apify is out of credit". */
   fallbackReason?: string | null;
   /** Present once done: how many places were stored in the pipeline. */

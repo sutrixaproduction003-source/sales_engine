@@ -181,6 +181,9 @@ export function MapDiscovery() {
   );
   const busy = status === "starting" || status === "scraping";
   const fromOsm = run?.source === "openstreetmap";
+  const fromApollo = run?.source === "apollo";
+  const fallbackSource = fromOsm ? "OpenStreetMap" : fromApollo ? "Apollo" : null;
+  const approximatePins = places.filter((p) => p.locationApproximate).length;
   const drafts = useAutoDraft();
 
   // Every scrape flows straight into drafting: businesses with an email get a
@@ -379,9 +382,16 @@ export function MapDiscovery() {
         {busy && (
           <span className="flex items-center gap-2 text-sky-300">
             <Loader2 className="h-4 w-4 animate-spin" />
-            {status === "starting" ? "Starting scrape…" : fromOsm ? "Searching OpenStreetMap" : "Scraping Google Maps"} ·{" "}
+            {status === "starting" ? "Starting scrape…" : fallbackSource ? `Searching ${fallbackSource}` : "Scraping Google Maps"} ·{" "}
             {formatElapsed(elapsed)}
-            <span className="text-xs text-slate-500">({fromOsm ? "usually under a minute" : "usually 1–3 minutes"})</span>
+            <span className="text-xs text-slate-500">({fallbackSource ? "usually under a minute" : "usually 1–3 minutes"})</span>
+          </span>
+        )}
+        {fromApollo && status !== "idle" && status !== "error" && (
+          <span className="basis-full text-xs text-amber-300/90">
+            {run?.fallbackReason || "Google Maps unavailable"} — using Apollo company data instead (website, phone and
+            LinkedIn; no ratings).
+            {approximatePins > 0 && ` ${approximatePins} pins are approximate (near the city centre) — Apollo has no exact address for them.`}
           </span>
         )}
         {fromOsm && status !== "idle" && status !== "error" && (

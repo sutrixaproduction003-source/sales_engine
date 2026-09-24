@@ -8,14 +8,17 @@
  * longer than a serverless request is allowed to live.
  *
  * Fallback: when Apify is not configured, out of credit, or a run fails, the
- * same search runs on OpenStreetMap instead (free, keyless — see osmPlaces).
- * OSM jobs use the same start/poll interface with "osm-" run ids.
+ * same search runs on Apollo company search when an Apollo key is set (see
+ * apolloPlaces), else — or when Apollo finds nothing — on OpenStreetMap (free,
+ * keyless — see osmPlaces). Fallback jobs use the same start/poll interface
+ * with "fb-" run ids.
  */
 
 const { startActorRun, getActorRun, getDatasetItems } = require('./apifyScrapers');
 const { createError } = require('../utils/errors');
 const { apifyScrapeContacts } = require('../config/env');
 const { searchOsm, lookupOsm } = require('./osmPlaces');
+const { apolloAvailable, searchApollo, lookupApollo } = require('./apolloPlaces');
 const logger = require('../utils/logger');
 
 const ACTOR = 'compass~crawler-google-places';
@@ -149,7 +152,7 @@ function withBusinessEmail({ rawEmails, ...place }) {
   };
 }
 
-// ---------- OpenStreetMap fallback jobs (in-process) ----------
+// ---------- fallback jobs: Apollo, then OpenStreetMap (in-process) ----------
 
 const OSM_JOB_TTL_MS = 60 * 60 * 1000;
 const osmJobs = new Map();
@@ -162,23 +165,61 @@ function remember(map, key, value) {
   for (const [k, v] of map) if (Date.now() - v.at > OSM_JOB_TTL_MS) map.delete(k);
 }
 
-/** Start an OSM search in the background; returns its run id. */
-function startOsmJob(request, reason) {
-  const runId = `osm-${Date.now().toString(36)}-${++osmJobCount}`;
-  const job = { status: 'RUNNING', startedAt: new Date().toISOString(), reason };
-  remember(osmJobs, runId, job);
-  const work =
+/**
+ * The search on the fallback sources: Apollo when configured, OpenStreetMap
+ * for everything Apollo can't provide. Sets job.source to where results came from.
+ */
+async function runFallback(request, job) {
+  const osm = (queries) =>
     request.kind === 'lookup'
-      ? lookupOsm(request.queries, withBusinessEmail)
+      ? lookupOsm(queries, withBusinessEmail)
       : searchOsm(
           { location: request.locationQuery, searchTerms: request.searchStringsArray, perTerm: request.maxCrawledPlacesPerSearch },
           withBusinessEmail
         );
+
+  if (apolloAvailable()) {
+    try {
+      if (request.kind === 'lookup') {
+        const { places, missing } = await lookupApollo(request.queries, withBusinessEmail);
+        const rest = missing.length ? await osm(missing) : [];
+        job.source = places.length ? 'apollo' : 'openstreetmap';
+        return [...places, ...rest];
+      }
+      const places = await searchApollo(
+        { location: request.locationQuery, searchTerms: request.searchStringsArray, perTerm: request.maxCrawledPlacesPerSearch },
+        withBusinessEmail
+      );
+      if (places.length) {
+        job.source = 'apollo';
+        return places;
+      }
+      job.apolloNote = 'Apollo found no companies here';
+    } catch (error) {
+      logger.warn('Apollo fallback failed', { message: error.message });
+      job.apolloNote = `Apollo failed: ${error.message}`;
+    }
+  }
+  job.source = 'openstreetmap';
+  return osm(request.queries);
+}
+
+/** Start a fallback search in the background; returns its run id. */
+function startOsmJob(request, reason) {
+  const runId = `fb-${Date.now().toString(36)}-${++osmJobCount}`;
+  const job = {
+    status: 'RUNNING',
+    startedAt: new Date().toISOString(),
+    reason,
+    source: apolloAvailable() ? 'apollo' : 'openstreetmap',
+  };
+  remember(osmJobs, runId, job);
+  const work = runFallback(request, job);
   work
     .then((places) => Object.assign(job, { status: 'SUCCEEDED', places }))
     .catch((error) => Object.assign(job, { status: 'FAILED', error }))
     .finally(() => (job.finishedAt = new Date().toISOString()));
-  logger.info(`Places search on OpenStreetMap (${reason})`);
+  logger.info(`Places search on fallback sources (${reason})`);
   return runId;
 }
 
@@ -189,8 +230,8 @@ function osmJobResult(runId, job) {
     status: job.status,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt || null,
-    source: 'openstreetmap',
-    fallbackReason: job.reason,
+    source: job.source,
+    fallbackReason: job.apolloNote ? `${job.reason} · ${job.apolloNote}` : job.reason,
   };
   if (job.status === 'FAILED') throw job.error;
   if (job.status !== FINISHED_OK) return { ...base, done: false, places: [] };
@@ -213,7 +254,8 @@ async function startWithFallback(input, request) {
   } catch (error) {
     if (error.code === 'INVALID_PLACES_INPUT') throw error;
     const reason = fallbackReason(error);
-    return { runId: startOsmJob(request, reason), status: 'RUNNING', source: 'openstreetmap', fallbackReason: reason };
+    const runId = startOsmJob(request, reason);
+    return { runId, status: 'RUNNING', source: osmJobs.get(runId).source, fallbackReason: reason };
   }
 }
 
@@ -251,7 +293,7 @@ async function startPlacesSearch(params) {
 async function getPlacesSearch(runId) {
   if (osmJobs.has(runId)) return osmJobResult(runId, osmJobs.get(runId));
 
-  // A failed Apify run continues on OSM under the same run id.
+  // A failed (or empty) Apify run continues on the fallback sources under the same run id.
   const pending = apifyRequests.get(runId);
   if (pending?.osmRunId) return { ...osmJobResult(pending.osmRunId, osmJobs.get(pending.osmRunId)), runId };
 
@@ -273,6 +315,12 @@ async function getPlacesSearch(runId) {
   const places = (await getDatasetItems(run.defaultDatasetId))
     .map(normalizePlace)
     .filter((place) => place && !seen.has(place.id) && seen.add(place.id));
+
+  // Nothing on Google Maps: try the fallback sources before giving up.
+  if (places.length === 0 && pending && pending.request.kind === 'search') {
+    pending.osmRunId = startOsmJob(pending.request, 'Google Maps found no businesses');
+    return { ...osmJobResult(pending.osmRunId, osmJobs.get(pending.osmRunId)), runId };
+  }
 
   return { ...base, done: true, places };
 }

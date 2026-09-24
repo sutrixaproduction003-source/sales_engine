@@ -102,7 +102,7 @@ describe('Places search falls back to OpenStreetMap', () => {
     const start = await request(app).post('/api/places/search').send({ location: 'Panaji, Goa', searchTerms: ['hotels'] });
     expect(start.status).toBe(202);
     expect(start.body).toMatchObject({ source: 'openstreetmap', fallbackReason: 'Apify is not connected' });
-    expect(start.body.runId).toMatch(/^osm-/);
+    expect(start.body.runId).toMatch(/^fb-/);
 
     const res = await pollUntilDone(start.body.runId);
     expect(res.body).toMatchObject({ done: true, source: 'openstreetmap' });

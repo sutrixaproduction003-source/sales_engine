@@ -51,11 +51,8 @@ const clean = (value) => String(value ?? '').trim();
 const geocodeCache = new Map();
 let nextNominatimSlot = 0;
 
-async function geocode(location) {
-  const key = clean(location).toLowerCase();
-  if (!key) throw createError('Location is required.', 'INVALID_PLACES_INPUT', 400);
-  if (geocodeCache.has(key)) return geocodeCache.get(key);
-
+/** One Nominatim lookup, at most one per second (their usage policy). */
+async function nominatim(query) {
   const wait = nextNominatimSlot - Date.now();
   nextNominatimSlot = Math.max(Date.now(), nextNominatimSlot) + 1100;
   if (wait > 0) await sleep(wait);
@@ -63,11 +60,37 @@ async function geocode(location) {
   const response = await axios.request({
     method: 'get',
     url: NOMINATIM,
-    params: { q: location, format: 'jsonv2', limit: 1, addressdetails: 1 },
+    params: { q: query, format: 'jsonv2', limit: 1, addressdetails: 1 },
     headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'en' },
     timeout: 20000,
   });
-  const hit = Array.isArray(response.data) ? response.data[0] : null;
+  return Array.isArray(response.data) ? response.data[0] || null : null;
+}
+
+const pointCache = new Map();
+
+/** Coordinates of a street address, or null. Never throws. */
+async function geocodePoint(address) {
+  const key = clean(address).toLowerCase();
+  if (!key) return null;
+  if (pointCache.has(key)) return pointCache.get(key);
+  let point = null;
+  try {
+    const hit = await nominatim(address);
+    if (hit) point = { latitude: Number(hit.lat), longitude: Number(hit.lon) };
+  } catch {
+    // Geocoding is best effort.
+  }
+  pointCache.set(key, point);
+  return point;
+}
+
+async function geocode(location) {
+  const key = clean(location).toLowerCase();
+  if (!key) throw createError('Location is required.', 'INVALID_PLACES_INPUT', 400);
+  if (geocodeCache.has(key)) return geocodeCache.get(key);
+
+  const hit = await nominatim(location);
   if (!hit) throw createError(`Could not find "${location}" on the map.`, 'LOCATION_NOT_FOUND', 404);
 
   let [south, north, west, east] = hit.boundingbox.map(Number);
@@ -80,6 +103,7 @@ async function geocode(location) {
   const address = hit.address || {};
   const place = {
     bbox: [south, west, north, east],
+    center: { latitude: lat, longitude: lon },
     city: address.city || address.town || address.village || address.county || clean(location).split(',')[0],
     state: address.state || null,
     country: address.country_code ? address.country_code.toUpperCase() : null,
@@ -241,4 +265,4 @@ async function lookupOsm(queries, emailPicker) {
   return places;
 }
 
-module.exports = { searchOsm, lookupOsm, selectorsFor, normalizeElement, TAG_RULES };
+module.exports = { searchOsm, lookupOsm, geocode, geocodePoint, selectorsFor, normalizeElement, TAG_RULES };

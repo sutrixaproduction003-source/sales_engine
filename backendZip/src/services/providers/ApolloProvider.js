@@ -275,6 +275,25 @@ class ApolloProvider extends BaseProvider {
     return params;
   }
 
+  /**
+   * Companies by HQ location, keyword tags and/or name (1 credit per page).
+   * → raw Apollo organization objects.
+   */
+  async searchOrganizations({ locations = [], keywordTags = [], name = '', perPage = 25 } = {}, page = 1) {
+    const body = { page: Math.max(1, Number(page) || 1), per_page: Math.min(MAX_PER_PAGE, Math.max(1, Number(perPage) || 25)) };
+    if (locations.length) body.organization_locations = locations;
+    if (keywordTags.length) body.q_organization_keyword_tags = keywordTags;
+    if (name) body.q_organization_name = name;
+
+    const { status, data = {} } = await this.post('/mixed_companies/search', body);
+    if (status < 200 || status >= 300) {
+      throw createError(apolloErrorMessage(data, `Apollo company search failed (HTTP ${status})`), 'APOLLO_API_ERROR', status, {
+        provider: 'apollo',
+      });
+    }
+    return [...(Array.isArray(data.organizations) ? data.organizations : []), ...(Array.isArray(data.accounts) ? data.accounts : [])];
+  }
+
   async searchPeople(filters = {}, page = 1) {
     const requestBody = this.buildSearchParams({ page, perPage: filters.perPage || DEFAULT_PER_PAGE, filters });
     const { status, data = {} } = await this.post(SEARCH_PATH, requestBody);

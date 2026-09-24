@@ -79,6 +79,9 @@ export function PlaceDetailCard({
 
       <div className="mt-3 space-y-1.5">
         {place.exactAddress && <Row icon={<MapPin className="h-3.5 w-3.5" />}>{place.exactAddress}</Row>}
+        {place.locationApproximate && (
+          <p className="text-[11px] text-amber-300/80">Approximate pin — no exact address from Apollo.</p>
+        )}
         <Row icon={<Mail className="h-3.5 w-3.5" />}>
           {place.email ? (
             <a href={`mailto:${place.email}`} className={linkClass}>
