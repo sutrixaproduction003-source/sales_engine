@@ -19,16 +19,29 @@ export const SETTING_KEYS = [
   "GROQ_API_KEY",
   "DEEPSEEK_API_KEY",
   "HUBSPOT_ACCESS_TOKEN",
+  "HUBSPOT_AUTO_SYNC",
   "GMAIL_USER",
   "GMAIL_APP_PASSWORD",
   "SENDER_NAME",
   "SENDER_COMPANY",
   "SENDER_PITCH",
+  "LEAD_STORE",
+  "GOOGLE_SHEET_ID",
+  /** Service account key JSON, base64-encoded. */
+  "GOOGLE_SERVICE_ACCOUNT",
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
 /** Settings shown back in full (not secrets). */
-export const PLAIN_SETTINGS: SettingKey[] = ["GMAIL_USER", "SENDER_NAME", "SENDER_COMPANY", "SENDER_PITCH"];
+export const PLAIN_SETTINGS: SettingKey[] = [
+  "GMAIL_USER",
+  "SENDER_NAME",
+  "SENDER_COMPANY",
+  "SENDER_PITCH",
+  "LEAD_STORE",
+  "GOOGLE_SHEET_ID",
+  "HUBSPOT_AUTO_SYNC",
+];
 
 const unquote = (value: string) =>
   value

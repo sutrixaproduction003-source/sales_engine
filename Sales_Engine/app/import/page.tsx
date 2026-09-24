@@ -1,16 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, ClipboardPaste, Loader2, Trash2, UploadCloud } from "lucide-react";
 import { Button, Card, Label, Select, cn } from "@/components/ui";
 import { apiCall } from "@/lib/api";
+import { getHubSpotStatus, syncToHubSpot, type HubSpotStatus } from "@/lib/hubspotClient";
 import { pollPlacesSearch, type PlacesRun, type ScrapedPlace } from "@/lib/places";
 import { PROJECTS } from "@/lib/projects";
 import { parseSalesNavigatorText, splitLocation, type SalesNavLead } from "@/lib/salesNavigatorImport";
 
 type ImportedLead = { key: string; id: number; created: boolean };
-type Step = "idle" | "saving" | "lookup" | "drafting" | "done" | "error";
+type Step = "idle" | "saving" | "lookup" | "drafting" | "crm" | "done" | "error";
 
 interface Summary {
   created: number;
@@ -20,6 +21,9 @@ interface Summary {
   withEmail?: number;
   drafted?: number;
   draftFailed?: number;
+  hubspotSynced?: number;
+  hubspotFailed?: number;
+  hubspotError?: string;
 }
 
 const POLL_MS = 4000;
@@ -37,14 +41,25 @@ export default function SalesNavigatorImportPage() {
   const [projectId, setProjectId] = useState(PROJECTS[0]?.id ?? "");
   const [lookupCompanies, setLookupCompanies] = useState(true);
   const [draftEmails, setDraftEmails] = useState(true);
+  const [hubspot, setHubspot] = useState<HubSpotStatus | null>(null);
+  const [addToHubSpot, setAddToHubSpot] = useState(false);
   const [step, setStep] = useState<Step>("idle");
   const [progress, setProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
 
+  useEffect(() => {
+    getHubSpotStatus()
+      .then((status) => {
+        setHubspot(status);
+        setAddToHubSpot(status.connected);
+      })
+      .catch(() => setHubspot(null));
+  }, []);
+
   const parsedPreview = useMemo(() => parseSalesNavigatorText(text), [text]);
   const selected = rows.filter((r) => !excluded.has(r.key));
-  const busy = step === "saving" || step === "lookup" || step === "drafting";
+  const busy = step === "saving" || step === "lookup" || step === "drafting" || step === "crm";
 
   const addPaste = () => {
     const known = new Set(rows.map((r) => r.key));
@@ -140,6 +155,22 @@ export default function SalesNavigatorImportPage() {
         }
         result.drafted = drafted;
         result.draftFailed = failed;
+      }
+
+      // 4. Add the imported leads to HubSpot (contacts + companies).
+      if (addToHubSpot && hubspot?.connected) {
+        setStep("crm");
+        setProgress("Adding leads to HubSpot…");
+        try {
+          const synced = await syncToHubSpot(saved.imported.map((l) => l.id), (done, remaining) =>
+            setProgress(`Adding leads to HubSpot · ${done}/${done + remaining}`)
+          );
+          result.hubspotSynced = synced.synced;
+          result.hubspotFailed = synced.failed;
+          result.hubspotError = synced.errors[0];
+        } catch (err) {
+          result.hubspotError = err instanceof Error ? err.message : String(err);
+        }
       }
 
       setSummary(result);
@@ -256,6 +287,12 @@ export default function SalesNavigatorImportPage() {
                 <input type="checkbox" checked={lookupCompanies} onChange={(e) => setLookupCompanies(e.target.checked)} disabled={busy} />
                 Find each company&apos;s website, email &amp; location (Google Maps)
               </label>
+              {hubspot?.connected && (
+                <label className="flex items-center gap-2 text-sm text-slate-300">
+                  <input type="checkbox" checked={addToHubSpot} onChange={(e) => setAddToHubSpot(e.target.checked)} disabled={busy} />
+                  Add to HubSpot
+                </label>
+              )}
               <label className="flex items-center gap-2 text-sm text-slate-300">
                 <input type="checkbox" checked={draftEmails} onChange={(e) => setDraftEmails(e.target.checked)} disabled={busy} />
                 Draft emails for review
@@ -291,6 +328,13 @@ export default function SalesNavigatorImportPage() {
               <li>
                 Companies found on Google Maps: {summary.companiesFound ?? 0} of {summary.companies} ·{" "}
                 {summary.withEmail ?? 0} leads now have an email address
+              </li>
+            )}
+            {(summary.hubspotSynced !== undefined || summary.hubspotError) && (
+              <li>
+                HubSpot: {summary.hubspotSynced ?? 0} contacts added or updated
+                {summary.hubspotFailed ? ` · ${summary.hubspotFailed} failed` : ""}
+                {summary.hubspotError && <span className="text-amber-300"> — {summary.hubspotError}</span>}
               </li>
             )}
             {summary.drafted !== undefined && (

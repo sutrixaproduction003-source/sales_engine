@@ -1,33 +1,31 @@
 import { NextResponse } from "next/server";
-import { listLeads, updateLead } from "@/lib/leadDb";
-import { syncLeadToHubSpot } from "@/lib/hubspot";
+import { listLeads } from "@/lib/leadDb";
+import { hubspotConfigured } from "@/lib/hubspot";
+import { needsHubSpotSync, syncLeads } from "@/lib/hubspotSync";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+/** Leads per request — keeps each call well inside time and rate limits. */
+const BATCH = 15;
+
+/**
+ * POST /api/hubspot/sync — { ids?: number[] }
+ * Syncs the given leads, or every lead that is new or changed since its last
+ * sync. Handles a batch per call; repeat while `remaining` > 0.
+ */
 export async function POST(request: Request) {
+  if (!hubspotConfigured()) {
+    return NextResponse.json({ error: "HubSpot is not connected. Add a private app token in Settings." }, { status: 412 });
+  }
   try {
     const body = (await request.json().catch(() => ({}))) as { ids?: number[] };
-    const ids = new Set(body.ids ?? []);
-    const leads = await listLeads({
-      where: (lead) => (ids.size ? ids.has(lead.id) : lead.status === "PERSONALIZED" && Boolean(lead.email)),
-      limit: 50,
-    });
-    let synced = 0;
-    const errors: string[] = [];
+    const ids = new Set(Array.isArray(body.ids) ? body.ids : []);
+    const queue = await listLeads({ where: (lead) => (ids.size ? ids.has(lead.id) && needsHubSpotSync(lead) : needsHubSpotSync(lead)) });
+    const batch = queue.slice(0, BATCH);
 
-    for (const lead of leads) {
-      try {
-        const hubspot = await syncLeadToHubSpot(lead);
-        await updateLead(lead.id, { hubspotContactId: hubspot.contactId, hubspotCompanyId: hubspot.companyId, hubspotSyncStatus: "SYNCED", hubspotSyncedAt: new Date(), hubspotSyncError: null });
-        synced++;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        errors.push(`${lead.email ?? lead.name}: ${message}`);
-        await updateLead(lead.id, { hubspotSyncStatus: "ERROR", hubspotSyncError: message.slice(0, 500) });
-      }
-    }
-    return NextResponse.json({ synced, attempted: leads.length, errors: errors.slice(0, 20) });
+    const result = await syncLeads(batch);
+    return NextResponse.json({ ...result, attempted: batch.length, remaining: queue.length - batch.length });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "HubSpot sync failed" }, { status: 500 });
   }

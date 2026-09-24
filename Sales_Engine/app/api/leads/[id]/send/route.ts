@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getLead, updateLead } from "@/lib/leadDb";
 import { getMailConfig, sendEmail } from "@/lib/mailer";
+import { recordSentEmailInHubSpot } from "@/lib/hubspotSync";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -45,14 +46,17 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   try {
     const { messageId } = await sendEmail({ to: lead.email, subject, text: body });
+    const sentAt = new Date();
     const updated = await updateLead(id, {
       emailSubject: subject,
       emailBody: body,
       status: "SYNCED",
-      sentAt: new Date(),
+      sentAt,
       sentMessageId: messageId,
       sendError: null,
     });
+    // CRM: mark the contact as contacted and log the email (never blocks the send).
+    await recordSentEmailInHubSpot(id, { subject, body, sentAt });
     return NextResponse.json({ success: true, lead: updated });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Email could not be sent.";

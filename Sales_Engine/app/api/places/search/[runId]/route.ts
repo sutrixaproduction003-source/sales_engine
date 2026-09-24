@@ -89,7 +89,7 @@ export async function GET(request: Request, { params }: { params: { runId: strin
     run.saved = 0;
     run.updated = 0;
     run.saveError =
-      error instanceof Error && error.name === "LeadStoreBusyError"
+      error instanceof Error && error.name === "LeadStoreError"
         ? error.message
         : "Leads were found but could not be saved to the leads spreadsheet.";
   }

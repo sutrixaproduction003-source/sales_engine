@@ -23,6 +23,7 @@ import { PROJECTS, getProject } from "@/lib/projects";
 import { buildCategoryColors, hasCoordinates, placeCategory, type ScrapedPlace } from "@/lib/places";
 import { usePlacesSearch } from "@/lib/usePlacesSearch";
 import { useAutoDraft } from "@/lib/useAutoDraft";
+import { getHubSpotStatus, syncToHubSpot } from "@/lib/hubspotClient";
 
 // Leaflet touches `window` at import time, so the map is client-only.
 const LeadMap = dynamic(() => import("@/components/map/LeadMap"), {
@@ -149,7 +150,14 @@ export function MapDiscovery() {
   // personalized draft that waits in the Review Queue (nothing is sent).
   const { draftAll, reset: resetDrafts } = drafts;
   useEffect(() => {
-    if (status === "done" && run?.done && !run.saveError) draftAll(run.places);
+    if (status === "done" && run?.done && !run.saveError) {
+      const ids = run.places.map((p) => p.dbId).filter((id): id is number => typeof id === "number");
+      // Then, with HubSpot auto-sync on, the new leads go straight into the CRM.
+      draftAll(run.places)
+        .then(() => getHubSpotStatus())
+        .then((hubspot) => (hubspot.connected && hubspot.autoSync && ids.length ? syncToHubSpot(ids) : null))
+        .catch((error) => console.error("HubSpot sync after scrape failed:", error));
+    }
     if (status === "starting") resetDrafts();
   }, [status, run, draftAll, resetDrafts]);
 
