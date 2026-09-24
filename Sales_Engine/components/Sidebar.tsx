@@ -26,7 +26,6 @@ const groups: { label?: string; items: { href: string; label: string; icon: type
       { href: "/leads", label: "Leads Hub", icon: Users },
       { href: "/discovery", label: "Discovery", icon: Globe },
       { href: "/import", label: "Sales Nav Import", icon: UploadCloud },
-      { href: "/dispatch", label: "Dispatch", icon: Send },
     ],
   },
   {
@@ -34,6 +33,7 @@ const groups: { label?: string; items: { href: string; label: string; icon: type
     items: [
       { href: "/personalization", label: "Personalization", icon: Sparkles },
       { href: "/review", label: "Review Queue", icon: ClipboardCheck },
+      { href: "/dispatch", label: "Dispatch", icon: Send },
     ],
   },
   {
