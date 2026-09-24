@@ -16,8 +16,6 @@ Example response:
 {
   "success": true,
   "providers": {
-    "prospeo": { "configured": true },
-    "hunter": { "configured": true },
     "apollo": { "configured": true }
   }
 }
@@ -31,7 +29,7 @@ Request body:
 
 ```json
 {
-  "provider": "prospeo",
+  "provider": "apollo",
   "filters": {
     "job_title": "CEO",
     "location": "United States",
@@ -49,14 +47,16 @@ Request body:
 
 ```json
 {
-  "provider": "prospeo",
+  "provider": "apollo",
   "firstName": "John",
   "lastName": "Doe",
   "companyWebsite": "example.com"
 }
 ```
 
-## Email finder
+## Email finder (stub)
+
+No configured provider supports this yet; requests return `400 PROVIDER_CAPABILITY_UNSUPPORTED`.
 
 ### POST /leads/email-finder
 
@@ -64,14 +64,16 @@ Request body:
 
 ```json
 {
-  "provider": "hunter",
+  "provider": "apollo",
   "firstName": "John",
   "lastName": "Doe",
   "domain": "example.com"
 }
 ```
 
-## Email verification
+## Email verification (stub)
+
+No configured provider supports this yet; requests return `400 PROVIDER_CAPABILITY_UNSUPPORTED`.
 
 ### POST /leads/email-verify
 
@@ -79,7 +81,7 @@ Request body:
 
 ```json
 {
-  "provider": "hunter",
+  "provider": "apollo",
   "email": "john@example.com"
 }
 ```
@@ -92,7 +94,7 @@ Request body:
 
 ```json
 {
-  "provider": "prospeo",
+  "provider": "apollo",
   "filters": {
     "industry": "Software",
     "location": "United States"

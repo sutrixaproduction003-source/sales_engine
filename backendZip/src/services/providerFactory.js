@@ -3,14 +3,10 @@
  * is created at startup so axios clients are reused across requests.
  */
 
-const ProspeoProvider = require('./providers/ProspeoProvider');
-const HunterProvider = require('./providers/HunterProvider');
 const ApolloProvider = require('./providers/ApolloProvider');
 const { createError } = require('../utils/errors');
 
 const providers = {
-  prospeo: new ProspeoProvider(),
-  hunter: new HunterProvider(),
   apollo: new ApolloProvider(),
 };
 

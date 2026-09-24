@@ -29,21 +29,18 @@ export interface ProjectRequirements {
 
 /**
  * Provider names supported by the EXISTING provider backend (backendZip
- * providerFactory: apollo | hunter | prospeo). Kept in sync with that list —
- * no other values may be sent to POST /api/leads/search.
+ * providerFactory). Kept in sync with that list — no other values may be
+ * sent to POST /api/leads/search.
  */
-export type ProviderName = "prospeo" | "hunter" | "apollo";
+export type ProviderName = "apollo";
 
-export const SUPPORTED_PROVIDERS: ProviderName[] = ["prospeo", "hunter", "apollo"];
+export const SUPPORTED_PROVIDERS: ProviderName[] = ["apollo"];
 
 /**
  * Fallback provider used when a project does not declare one and the request
- * carries no explicit override. Both Prospeo and Apollo implement people
- * search (Hunter does not), but Prospeo remains the safe default because it
- * is the only provider that returns real contact data (emails) in its search
- * results.
+ * carries no explicit override.
  */
-export const DEFAULT_PROVIDER: ProviderName = "prospeo";
+export const DEFAULT_PROVIDER: ProviderName = "apollo";
 
 export interface ProjectConfig {
   id: string;
@@ -65,14 +62,14 @@ export const PROJECTS: ProjectConfig[] = [
     requirements: {
       categories: ["Hotels", "Resorts", "Restaurants", "Hospitality Groups", "Property Management"],
     },
-    provider: "prospeo",
+    provider: "apollo",
   },
   {
     id: "general",
     name: "General Sales",
     description: "Open prospecting across any industry or location.",
     requirements: {},
-    provider: "prospeo",
+    provider: "apollo",
   },
 ];
 

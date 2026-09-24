@@ -26,7 +26,7 @@
         "header": [{ "key": "Content-Type", "value": "application/json" }],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"provider\": \"prospeo\",\n  \"filters\": {\n    \"job_title\": \"CEO\"\n  },\n  \"page\": 1\n}"
+          "raw": "{\n  \"provider\": \"apollo\",\n  \"filters\": {\n    \"job_title\": \"CEO\"\n  },\n  \"page\": 1\n}"
         },
         "url": "{{BASE_URL}}/leads/search"
       }
@@ -38,7 +38,7 @@
         "header": [{ "key": "Content-Type", "value": "application/json" }],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"provider\": \"prospeo\",\n  \"filters\": {\n    \"industry\": \"Software\"\n  },\n  \"page\": 1\n}"
+          "raw": "{\n  \"provider\": \"apollo\",\n  \"filters\": {\n    \"industry\": \"Software\"\n  },\n  \"page\": 1\n}"
         },
         "url": "{{BASE_URL}}/companies/search"
       }
@@ -50,7 +50,7 @@
         "header": [{ "key": "Content-Type", "value": "application/json" }],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"provider\": \"prospeo\",\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\",\n  \"companyWebsite\": \"example.com\"\n}"
+          "raw": "{\n  \"provider\": \"apollo\",\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\",\n  \"companyWebsite\": \"example.com\"\n}"
         },
         "url": "{{BASE_URL}}/leads/enrich"
       }
@@ -62,7 +62,7 @@
         "header": [{ "key": "Content-Type", "value": "application/json" }],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"provider\": \"prospeo\",\n  \"companyWebsite\": \"example.com\"\n}"
+          "raw": "{\n  \"provider\": \"apollo\",\n  \"companyWebsite\": \"example.com\"\n}"
         },
         "url": "{{BASE_URL}}/companies/enrich"
       }
@@ -74,7 +74,7 @@
         "header": [{ "key": "Content-Type", "value": "application/json" }],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"provider\": \"hunter\",\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\",\n  \"domain\": \"example.com\"\n}"
+          "raw": "{\n  \"provider\": \"apollo\",\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\",\n  \"domain\": \"example.com\"\n}"
         },
         "url": "{{BASE_URL}}/leads/email-finder"
       }
@@ -86,7 +86,7 @@
         "header": [{ "key": "Content-Type", "value": "application/json" }],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"provider\": \"hunter\",\n  \"email\": \"john@example.com\"\n}"
+          "raw": "{\n  \"provider\": \"apollo\",\n  \"email\": \"john@example.com\"\n}"
         },
         "url": "{{BASE_URL}}/leads/email-verify"
       }

@@ -1,9 +1,12 @@
 /**
- * Search providers for lead discovery
- * Supports: Apollo, Hunter, DuckDuckGo (OSINT), and other connectors
+ * Search providers for lead discovery.
+ *  - apollo:          API search through the provider backend; results are
+ *                     pulled into the app and saved to the pipeline.
+ *  - salesnavigator:  LinkedIn Sales Navigator deep link — opens a pre-filled
+ *                     search in the user's own Sales Navigator seat.
  */
 
-export type SearchProvider = "apollo" | "hunter" | "duckduckgo" | "prospeo";
+export type SearchProvider = "apollo" | "salesnavigator";
 
 export interface SearchFilters {
   location?: string;
@@ -16,47 +19,27 @@ export interface SearchFilters {
   propertySizeCategory?: string;
 }
 
-export interface SearchResult {
-  id?: string;
-  name?: string;
-  email?: string;
-  phone?: string;
-  company?: string;
-  jobTitle?: string;
-  location?: string;
-  industry?: string;
-  linkedinUrl?: string;
-  website?: string;
-  source?: string;
-  score?: number;
-  verified?: boolean;
+export interface SearchProviderConfig {
+  label: string;
+  description: string;
+  /** "api" results come back into the app; "link" opens the provider's own UI. */
+  kind: "api" | "link";
 }
 
-export const SEARCH_PROVIDERS = {
+export const SEARCH_PROVIDERS: Record<SearchProvider, SearchProviderConfig> = {
   apollo: {
     label: "Apollo.io",
     description: "Paid B2B database with verified contacts",
-    icon: "database",
-    available: true,
+    kind: "api",
   },
-  hunter: {
-    label: "Hunter.io",
-    description: "Email finder and domain search",
-    icon: "mail",
-    available: true,
-  },
-  duckduckgo: {
-    label: "DuckDuckGo (OSINT)",
-    description: "Free OSINT search engine for lead research",
-    icon: "search",
-    available: true,
-  },
-  prospeo: {
-    label: "Prospeo",
-    description: "Email & phone finder for B2B sales",
-    icon: "phone",
-    available: true,
+  salesnavigator: {
+    label: "LinkedIn Sales Navigator",
+    description: "Opens a pre-filled people search in your Sales Navigator account",
+    kind: "link",
   },
 };
 
 export const AVAILABLE_PROVIDERS = Object.keys(SEARCH_PROVIDERS) as SearchProvider[];
+
+/** Providers searched through the provider backend (POST /api/leads/search). */
+export const API_PROVIDERS = AVAILABLE_PROVIDERS.filter((provider) => SEARCH_PROVIDERS[provider].kind === "api");

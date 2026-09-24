@@ -1,6 +1,6 @@
 /**
  * Base URL of the existing provider backend (backendZip Express server, which
- * fronts Prospeo/Hunter/Apollo and the Apify scrapers). Server-side only —
+ * fronts Apollo and the Apify scrapers). Server-side only —
  * provider API keys live in that backend's .env and are never exposed to the
  * browser.
  */

@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import type { SearchProvider } from "@/lib/searchProviders";
-import { AVAILABLE_PROVIDERS } from "@/lib/searchProviders";
+import { API_PROVIDERS } from "@/lib/searchProviders";
 import { postToBackend } from "@/lib/providerBackend";
 import { cleanString, isUniqueViolation, toLeadDetails, type ProviderLead } from "@/lib/leadRecord";
 
 export const runtime = "nodejs";
 
 /**
- * Unified search API - routes to different providers
- * Supports: Apollo, Hunter, DuckDuckGo, Prospeo
+ * Unified search API for providers whose results come back into the app
+ * (see API_PROVIDERS). Link-based providers such as Sales Navigator are
+ * handled entirely in the browser and never reach this route.
  */
 
 interface SearchBody {
@@ -34,10 +35,10 @@ export async function POST(request: Request) {
     const body = (await request.json()) as SearchBody;
     const { provider, filters, page = 1 } = body;
 
-    if (!provider || !AVAILABLE_PROVIDERS.includes(provider)) {
+    if (!provider || !API_PROVIDERS.includes(provider)) {
       return NextResponse.json(
         {
-          error: `Invalid provider. Available: ${AVAILABLE_PROVIDERS.join(", ")}`,
+          error: `Invalid provider. Available: ${API_PROVIDERS.join(", ")}`,
         },
         { status: 400 }
       );
@@ -54,17 +55,7 @@ export async function POST(request: Request) {
     let providerResponse: Response;
 
     switch (provider) {
-      case "duckduckgo":
-        providerResponse = await fetch(new URL("/api/search/duckduckgo", request.url), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filters, page }),
-        });
-        break;
-
       case "apollo":
-      case "hunter":
-      case "prospeo":
         providerResponse = await postToBackend("/api/leads/search", {
           provider,
           filters: {

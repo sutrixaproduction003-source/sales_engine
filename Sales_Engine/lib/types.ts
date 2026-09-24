@@ -7,7 +7,7 @@
  * - DiscoveryLead → normalized provider leads returned by
  *   POST /api/leads/discover
  *
- *   The backend normalizes Prospeo/Hunter/Apollo payloads.
+ *   The backend normalizes Apollo payloads.
  *
  * - StatsResponse → GET /api/stats pipeline counters
  *
@@ -363,7 +363,7 @@ export interface DiscoveryLead {
 
   /**
    * Provider/source name as returned by the backend
-   * (e.g. "prospeo", "hunter", "apollo").
+   * (e.g. "apollo").
    */
   source: string;
 

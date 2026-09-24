@@ -128,8 +128,10 @@ router.post(
 
 /**
  * POST /api/leads/find-email (alias: /api/leads/email-finder)
+ * Kept as a stub: no configured provider implements it yet, so it returns
+ * 400 PROVIDER_CAPABILITY_UNSUPPORTED.
  *
- * { "provider": "hunter", "firstName": "John", "lastName": "Doe", "domain": "example.com" }
+ * { "provider": "apollo", "firstName": "John", "lastName": "Doe", "domain": "example.com" }
  */
 router.post(
   ['/leads/find-email', '/leads/email-finder'],
@@ -152,8 +154,9 @@ router.post(
 
 /**
  * POST /api/leads/verify-email (alias: /api/leads/email-verify)
+ * Kept as a stub (see find-email).
  *
- * { "provider": "hunter", "email": "john@example.com" }
+ * { "provider": "apollo", "email": "john@example.com" }
  */
 router.post(
   ['/leads/verify-email', '/leads/email-verify'],

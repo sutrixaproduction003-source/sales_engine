@@ -34,33 +34,6 @@ async function fetchApifyRating(company: string, location: string) {
   };
 }
 
-function decodeHtml(value: string): string {
-  return value
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;|&#39;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function extractReviewData(text: string) {
-  const ratingMatch = text.match(
-    /(?:rated?\s*)?\b([0-5](?:\.\d)?)\s*(?:\/\s*5|out\s+of\s+5|stars?)\b/i
-  );
-  const reviewsMatch = text.match(/([\d,.]+)\s*(?:google\s+)?reviews?\b/i);
-  const reviewCount = reviewsMatch
-    ? Number(reviewsMatch[1].replace(/,/g, ""))
-    : null;
-
-  return {
-    rating: ratingMatch ? Number(ratingMatch[1]) : null,
-    reviewCount: Number.isFinite(reviewCount) ? reviewCount : null,
-  };
-}
-
 export async function POST(request: Request) {
   try {
     const { company, location } = (await request.json()) as ReviewSearchBody;
@@ -68,52 +41,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Company is required" }, { status: 400 });
     }
 
-    try {
-      const apifyResult = await fetchApifyRating(company.trim(), location?.trim() || "");
-      if (apifyResult && (apifyResult.rating !== null || apifyResult.reviewCount !== null)) {
-        return NextResponse.json(apifyResult);
-      }
-    } catch (error) {
-      console.warn("Apify Google rating lookup failed:", error);
-    }
-
-    const query = `site:google.com/maps "${company.trim()}" "${location?.trim() || ""}" reviews`;
-    const response = await fetch(
-      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
-      {
-        headers: {
-          "User-Agent": "Mozilla/5.0 SalesEngine/1.0",
-          Accept: "text/html",
-        },
-        cache: "no-store",
-      }
-    );
-
-    if (!response.ok) {
-      return NextResponse.json({ rating: null, reviewCount: null, link: null });
-    }
-
-    const html = await response.text();
-    const titleMatch = html.match(
-      /<a[^>]+class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i
-    );
-    const snippetMatch = html.match(
-      /<(?:a|div)[^>]+class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div)>/i
-    );
-    const fallbackLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-      `${company.trim()} ${location?.trim() || ""}`.trim()
-    )}`;
-    const link = titleMatch?.[1] || fallbackLink;
-    const title = titleMatch ? decodeHtml(titleMatch[2]) : "";
-    const snippet = snippetMatch ? decodeHtml(snippetMatch[1]) : "";
-    const reviewData = extractReviewData(`${title} ${snippet}`);
-
-    return NextResponse.json({
-      ...reviewData,
-      link,
-      snippet: snippet || null,
-      source: "DuckDuckGo",
-    });
+    const result = await fetchApifyRating(company.trim(), location?.trim() || "");
+    return NextResponse.json(result ?? { rating: null, reviewCount: null, link: null });
   } catch (error) {
     console.error("Review lookup error:", error);
     return NextResponse.json(

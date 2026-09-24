@@ -12,21 +12,23 @@ import {
   Map as MapIcon,
   Sparkles,
   Download,
+  ExternalLink,
 } from "lucide-react";
 import { PROJECTS } from "@/lib/projects";
 import { SearchProviderSelector, ProviderBadge } from "@/components/SearchProviderSelector";
 import { DiscoveryResultCard } from "@/components/discovery/DiscoveryResultCard";
 import { Pagination } from "@/components/discovery/Pagination";
 import { QuickStatsCard } from "@/components/discovery/QuickStatsCard";
-import type { SearchProvider } from "@/lib/searchProviders";
+import { SEARCH_PROVIDERS, type SearchProvider } from "@/lib/searchProviders";
+import { buildSalesNavigatorSearchUrl } from "@/lib/salesNavigator";
 import type { DiscoveryLead } from "@/lib/types";
 import { exportLeadsCsv, toDiscoveryLead, withReviewRatings } from "@/lib/discoveryLeads";
 import { useStats } from "@/lib/useStats";
 
 const LEADS_PER_PAGE = 8;
 
-/** Providers whose search results can be enriched (DuckDuckGo is OSINT only). */
-const ENRICHABLE_PROVIDERS: SearchProvider[] = ["apollo", "hunter", "prospeo"];
+/** Providers whose search results can be enriched. */
+const ENRICHABLE_PROVIDERS: SearchProvider[] = ["apollo"];
 
 const BRAND_TYPES = ["Independent", "Chain", "Resort", "Spa", "Service Apartment"];
 const PROPERTY_SIZES = ["Small", "Medium", "Large"];
@@ -87,10 +89,32 @@ export default function DiscoveryPage() {
   const [enrichError, setEnrichError] = useState<string | null>(null);
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [salesNavUrl, setSalesNavUrl] = useState<string | null>(null);
 
   const { stats, error: statsError, reload: reloadStats } = useStats();
 
+  /** Open a pre-filled people search in the user's Sales Navigator seat. */
+  const openSalesNavigator = () => {
+    const url = buildSalesNavigatorSearchUrl({
+      jobTitle: jobTitles,
+      company: hotelName,
+      location,
+      industry,
+      keywords: [brandType, propertySizeCategory].filter(Boolean).join(" "),
+    });
+    setError(null);
+    setResult(null);
+    setSalesNavUrl(url);
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
   const startDiscovery = async () => {
+    if (SEARCH_PROVIDERS[searchProvider].kind === "link") {
+      openSalesNavigator();
+      return;
+    }
+
+    setSalesNavUrl(null);
     setRunning(true);
     setError(null);
     setEnrichError(null);
@@ -226,7 +250,6 @@ export default function DiscoveryPage() {
                 selectedProvider={searchProvider}
                 onProviderChange={setSearchProvider}
                 showDescription={true}
-                layout="dropdown"
               />
             </div>
 
@@ -290,13 +313,13 @@ export default function DiscoveryPage() {
                 <span className="font-medium text-indigo-300">
                   <ProviderBadge provider={searchProvider} />
                 </span>{" "}
-                {searchProvider === "duckduckgo"
-                  ? "OSINT search engine (free, no API key required)"
+                {SEARCH_PROVIDERS[searchProvider].kind === "link"
+                  ? "opens in LinkedIn (uses your Sales Navigator seat)"
                   : "via the provider backend"}
               </span>
             </div>
             <span className="text-[11px] text-slate-500">
-              {searchProvider === "duckduckgo" ? "Public search results" : "Keys secured on backend"}
+              {SEARCH_PROVIDERS[searchProvider].kind === "link" ? "No API key needed" : "Keys secured on backend"}
             </span>
           </div>
 
@@ -308,14 +331,42 @@ export default function DiscoveryPage() {
               </>
             ) : (
               <>
-                <Play className="h-4 w-4" />
-                Start Discovery
+                {SEARCH_PROVIDERS[searchProvider].kind === "link" ? (
+                  <ExternalLink className="h-4 w-4" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+                {SEARCH_PROVIDERS[searchProvider].kind === "link" ? "Open in Sales Navigator" : "Start Discovery"}
               </>
             )}
           </Button>
 
           {error && <ErrorBanner message={error} onRetry={startDiscovery} />}
           {enrichError && <ErrorBanner message={enrichError} />}
+
+          {salesNavUrl && (
+            <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-4">
+              <div className="flex items-start gap-2">
+                <ExternalLink className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-sky-300">Sales Navigator search opened in a new tab</p>
+                  <p className="text-xs text-slate-400">
+                    Job titles and hotel/company name are applied as Sales Navigator filters; location, industry,
+                    brand type and property size are added as keywords. Save leads to a list in Sales Navigator,
+                    then import them from the Leads Hub (CSV).
+                  </p>
+                  <a
+                    href={salesNavUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block text-xs font-medium text-sky-300 hover:text-sky-200 hover:underline"
+                  >
+                    Didn&apos;t open? Open the search again
+                  </a>
+                </div>
+              </div>
+            </div>
+          )}
 
           {result && (
             <div

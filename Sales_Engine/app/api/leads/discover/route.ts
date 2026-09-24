@@ -18,7 +18,7 @@ export const runtime = "nodejs";
 
 /**
  * Lead discovery BFF — connects the frontend to the EXISTING provider backend
- * (backendZip: POST /api/leads/search → Prospeo/Hunter/Apollo provider service) and
+ * (backendZip: POST /api/leads/search → Apollo provider service) and
  * persists the normalized results into the Sales Engine pipeline (Prisma).
  * Deduplication is owned by the database unique constraint (email + website).
  * No provider API keys exist in this (or any) frontend file.

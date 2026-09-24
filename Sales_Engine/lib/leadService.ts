@@ -10,7 +10,7 @@ import type {
 
 /**
  * Single frontend service for Sales Engine backend calls.
- * The browser NEVER talks to Prospeo/Hunter/Apollo directly and never sees provider
+ * The browser NEVER talks to Apollo directly and never sees provider
  * API keys — all provider traffic is proxied by our backend routes:
  *  - GET  /api/stats              → pipeline statistics (existing route)
  *  - GET  /api/leads              → pipeline leads (existing route)

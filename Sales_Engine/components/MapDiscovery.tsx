@@ -15,7 +15,7 @@ import type { DiscoveryLead } from "@/lib/types";
  * registry (lib/projects) — no project names are hardcoded here, so new
  * projects work without any change to this component.
  * All data comes from OUR backend (POST /api/leads/discover → provider backend
- * → Prospeo/Hunter → normalized → geocoded → pipeline DB). No mock results.
+ * → Apollo → normalized → geocoded → pipeline DB). No mock results.
  */
 
 const DEFAULT_PROJECT_ID = PROJECTS[0]?.id ?? "";
