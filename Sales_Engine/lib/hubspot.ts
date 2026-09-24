@@ -83,10 +83,17 @@ export async function hubspotHealth(): Promise<void> {
 
 // ---------- custom properties (best effort) ----------
 
-const customState = globalThis as unknown as { __hubspotCustom?: Promise<Set<string>> };
+const customState = globalThis as unknown as { __hubspotCustom?: Promise<Set<string>>; __hubspotCustomToken?: string };
 
-/** Create the extra fields once; returns the ones available ("contacts.x"). */
+/**
+ * Create the extra fields once per HubSpot token (i.e. per portal); returns
+ * the ones available ("contacts.x"). Switching the token in Settings starts over.
+ */
 function ensureCustomProperties(): Promise<Set<string>> {
+  if (customState.__hubspotCustomToken !== token()) {
+    customState.__hubspotCustom = undefined;
+    customState.__hubspotCustomToken = token();
+  }
   customState.__hubspotCustom ??= (async () => {
     const available = new Set<string>();
     for (const [objectType, config] of Object.entries(CUSTOM_PROPERTIES)) {

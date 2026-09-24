@@ -133,3 +133,39 @@ describe('Google Maps finds nothing', () => {
     expect(res.body.places.length).toBe(2);
   });
 });
+
+describe('Company lookups', () => {
+  test('companies Google Maps did not find go to the fallback; found ones are kept', async () => {
+    mockServices({ apolloOrgs: [ORGS[1]] });
+    axios.request.mockImplementation(async (config) => {
+      if (config.url.includes('nominatim')) {
+        return { data: [{ lat: '13.0827', lon: '80.2707', boundingbox: ['12.9', '13.2', '80.1', '80.35'], address: { city: 'Chennai' } }] };
+      }
+      if (config.url.includes('/runs') && config.method === 'post') return { data: { data: { id: 'run-lk', status: 'READY', defaultDatasetId: 'ds-lk' } } };
+      if (config.url.includes('/actor-runs/')) return { data: { data: { id: 'run-lk', status: 'SUCCEEDED', defaultDatasetId: 'ds-lk' } } };
+      if (config.url.includes('/datasets/')) {
+        return { data: [{ title: 'MIOT International', placeId: 'g1', location: { lat: 13.02, lng: 80.18 }, searchString: 'MIOT International, Chennai' }] };
+      }
+      throw new Error(`unexpected ${config.url}`);
+    });
+    const start = await request(app)
+      .post('/api/places/lookup')
+      .set(KEY)
+      .send({ queries: ['MIOT International, Chennai', 'Kauvery Hospital, Chennai'] });
+    const res = await pollUntilDone(start.body.runId);
+    expect(res.body).toMatchObject({ done: true, source: 'google_maps', fallbackReason: '1 of 2 businesses not found on Google Maps' });
+    expect(res.body.places.map((p) => [p.companyName, p.source])).toEqual([
+      ['MIOT International', 'google_maps'],
+      ['Kauvery Hospital', 'apollo'],
+    ]);
+    // Only the missing company was looked up on Apollo.
+    expect(client.post.mock.calls.map((c) => c[1].q_organization_name)).toEqual(['Kauvery Hospital']);
+  });
+
+  test('more than 100 companies in one lookup is rejected, not silently cut', async () => {
+    const queries = Array.from({ length: 101 }, (_, i) => `Company ${i}, Pune`);
+    const res = await request(app).post('/api/places/lookup').send({ queries });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/At most 100/);
+  });
+});

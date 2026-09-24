@@ -134,6 +134,15 @@ export function toLead(raw: Record<string, unknown>, fallbackId: number): Lead {
  * an id (or with a duplicate one) get fresh ids.
  */
 export function rowsToLeads(headers: unknown[], rows: unknown[][]): Lead[] {
+  return mapRows(headers, rows).leads;
+}
+
+/**
+ * rowsToLeads, plus where each lead is: `rowIndex[i]` is the index in `rows`
+ * of `leads[i]`, and `idAssigned[i]` says its id was missing or a duplicate
+ * (so the sheet should be given the new id on the next save).
+ */
+export function mapRows(headers: unknown[], rows: unknown[][]): { leads: Lead[]; rowIndex: number[]; idAssigned: boolean[] } {
   const headerIndex = new Map<string, number>();
   headers.forEach((value, index) => {
     const header = cellText(value);
@@ -141,22 +150,30 @@ export function rowsToLeads(headers: unknown[], rows: unknown[][]): Lead[] {
   });
 
   const raws: Record<string, unknown>[] = [];
-  for (const row of rows) {
+  const rowIndex: number[] = [];
+  rows.forEach((row, index) => {
     const raw: Record<string, unknown> = {};
     for (const column of COLUMNS) {
-      const index = headerIndex.get(column.key);
-      if (index !== undefined) raw[column.key] = fromCell(row[index] ?? null, column.kind);
+      const at = headerIndex.get(column.key);
+      if (at !== undefined) raw[column.key] = fromCell(row[at] ?? null, column.kind);
     }
-    if (raw.name || raw.email || raw.website) raws.push(raw);
-  }
+    if (raw.name || raw.email || raw.website) {
+      raws.push(raw);
+      rowIndex.push(index);
+    }
+  });
 
   let nextId = raws.reduce((max, r) => (typeof r.id === "number" && r.id > max ? r.id : max), 0) + 1;
   const seen = new Set<number>();
-  return raws.map((raw) => {
-    const id = typeof raw.id === "number" && raw.id > 0 && !seen.has(raw.id) ? raw.id : nextId++;
+  const idAssigned: boolean[] = [];
+  const leads = raws.map((raw) => {
+    const keep = typeof raw.id === "number" && raw.id > 0 && !seen.has(raw.id);
+    const id = keep ? (raw.id as number) : nextId++;
+    idAssigned.push(!keep);
     seen.add(id);
     return toLead({ ...raw, id }, id);
   });
+  return { leads, rowIndex, idAssigned };
 }
 
 /** One lead as a row of plain values, in COLUMNS order. */

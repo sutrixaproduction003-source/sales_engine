@@ -18,6 +18,8 @@ export interface SyncResult {
   synced: number;
   failed: number;
   errors: string[];
+  /** Leads that failed, so a multi-batch sync can skip them. */
+  failedIds: number[];
 }
 
 export async function syncLeads(leads: Lead[]): Promise<SyncResult> {
@@ -54,6 +56,7 @@ export async function syncLeads(leads: Lead[]): Promise<SyncResult> {
     synced: outcomes.length - failed.length,
     failed: failed.length,
     errors: failed.map((o) => `#${o.id}: ${o.error}`).slice(0, 20),
+    failedIds: failed.map((o) => o.id),
   };
 }
 

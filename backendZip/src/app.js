@@ -10,6 +10,7 @@ const peopleRoutes = require('./routes/peopleRoutes');
 const apolloRoutes = require('./routes/apolloRoutes');
 const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
+const requireBackendKey = require('./middleware/requireBackendKey');
 const logger = require('./utils/logger');
 const { requestContext } = require('./utils/requestContext');
 
@@ -49,6 +50,7 @@ app.get('/', (req, res) => {
   res.json({ success: true, message: 'Sales Engine API is running.' });
 });
 
+app.use('/api', requireBackendKey);
 app.use('/api', limiter);
 app.use('/api', leadRoutes);
 app.use('/api', scraperRoutes);

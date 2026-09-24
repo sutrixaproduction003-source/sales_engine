@@ -15,8 +15,13 @@ export const PROVIDER_BACKEND_URL = (
 
 /** Keys saved on the Settings page, forwarded to the backend. */
 export function backendHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
   const apolloKey = getSetting("APOLLO_API_KEY");
-  return apolloKey ? { "x-apollo-api-key": apolloKey } : {};
+  if (apolloKey) headers["x-apollo-api-key"] = apolloKey;
+  // Shared secret the backend requires when it runs on the public internet.
+  const backendKey = process.env.BACKEND_API_KEY?.trim();
+  if (backendKey) headers["x-backend-key"] = backendKey;
+  return headers;
 }
 
 /** GET from the provider backend (never cached). */
