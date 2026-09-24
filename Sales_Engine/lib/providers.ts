@@ -1,4 +1,4 @@
-import type { Lead } from "@prisma/client";
+import type { Lead } from "@/lib/leadModel";
 
 const APIFY_BASE = "https://api.apify.com/v2";
 const INSTANTLY_BASE = "https://app.instantly.ai/api/v1";

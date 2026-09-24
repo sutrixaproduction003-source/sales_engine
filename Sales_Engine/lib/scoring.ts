@@ -1,4 +1,4 @@
-import { BusinessType, Classification, DecisionMakerTier } from '@prisma/client';
+import { BusinessType, Classification, DecisionMakerTier } from "@/lib/leadModel";
 
 interface ScoringInput {
   name?: string;

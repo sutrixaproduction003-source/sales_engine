@@ -78,7 +78,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Preserve non-managed vars (e.g., DATABASE_URL, OMNIROUTE_MODEL)
+    // Preserve non-managed vars (e.g., LEADS_XLSX_PATH, OMNIROUTE_MODEL)
     if (fs.existsSync(ENV_PATH)) {
       const raw = fs.readFileSync(ENV_PATH, "utf8");
       for (const line of raw.split(/\r?\n/)) {

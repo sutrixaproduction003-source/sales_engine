@@ -1,7 +1,7 @@
 /**
  * Shared frontend types — adapted to the ACTUAL backend contracts:
  *
- * - PipelineLead → Prisma `Lead` rows from GET /api/leads
+ * - PipelineLead → `Lead` rows (lib/leadModel) from GET /api/leads
  *   (Sales Engine pipeline DB)
  *
  * - DiscoveryLead → normalized provider leads returned by

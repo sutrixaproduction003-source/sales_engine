@@ -1,18 +1,15 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { listLeads, updateLead } from "@/lib/leadDb";
 import { omniRoutePersonalize } from "@/lib/providers";
 
 export const runtime = "nodejs";
-export const maxDuration =  60;
+export const maxDuration = 60;
 
 export async function POST() {
   try {
-    const leads = await prisma.lead.findMany({
-      where: { status: "SCRAPED" },
-      take: 50,
-    });
+    const leads = await listLeads({ where: (lead) => lead.status === "SCRAPED", limit: 50 });
 
-    let personalized =  0;
+    let personalized = 0;
     const errors: string[] = [];
 
     // Keep concurrency bounded to avoid overwhelming Groq while preventing one
@@ -23,10 +20,7 @@ export async function POST() {
       const results = await Promise.allSettled(
         batch.map(async (lead) => {
           const icebreaker = await omniRoutePersonalize(lead.scrapedContext ?? "");
-          await prisma.lead.update({
-            where: { id: lead.id },
-            data: { icebreaker, status: "PERSONALIZED" },
-          });
+          await updateLead(lead.id, { icebreaker, status: "PERSONALIZED" });
         })
       );
 
@@ -35,7 +29,7 @@ export async function POST() {
           personalized++;
         } else {
           const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
-          errors.push(batch[index].email + ": " + reason);
+          errors.push((batch[index].email ?? batch[index].name) + ": " + reason);
         }
       });
     }
@@ -48,7 +42,7 @@ export async function POST() {
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Personalize failed" },
-      { status:  500 }
+      { status: 500 }
     );
   }
 }

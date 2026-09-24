@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { updateLead } from "@/lib/leadDb";
 
 export const runtime = "nodejs";
 
@@ -23,10 +23,10 @@ export async function PATCH(
       );
     }
 
-    const lead = await prisma.lead.update({
-      where: { id },
-      data: { status: body.decision === "approve" ? "SYNCED" : "PENDING" },
-    });
+    const lead = await updateLead(id, { status: body.decision === "approve" ? "SYNCED" : "PENDING" });
+    if (!lead) {
+      return NextResponse.json({ error: "Lead not found." }, { status: 404 });
+    }
 
     return NextResponse.json({ success: true, lead });
   } catch (error) {

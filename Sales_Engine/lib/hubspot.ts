@@ -1,4 +1,4 @@
-import type { Lead } from "@prisma/client";
+import type { Lead } from "@/lib/leadModel";
 
 const HUBSPOT_BASE = "https://api.hubapi.com";
 

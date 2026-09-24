@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { DuplicateLeadError, transaction } from "@/lib/leadDb";
 import { callBackend, getFromBackend } from "@/lib/providerBackend";
 import { getProject } from "@/lib/projects";
-import { isUniqueViolation, toLeadDetails } from "@/lib/leadRecord";
+import { toLeadDetails } from "@/lib/leadRecord";
 import type { PlacesRun, ScrapedPlace } from "@/lib/places";
 
 export const runtime = "nodejs";
@@ -24,35 +24,31 @@ function toLeadData(place: ScrapedPlace, project: string | null) {
  * Store scraped places, deduplicated by Google place id. Re-scraping refreshes
  * the business details but never resets a lead's pipeline status or project.
  */
-async function savePlaces(places: ScrapedPlace[], project: string | null) {
-  let saved = 0;
-  let updated = 0;
-  const stored = new Map<string, { id: number; status: ScrapedPlace["status"] }>();
+function savePlaces(places: ScrapedPlace[], project: string | null) {
+  return transaction((tx) => {
+    let saved = 0;
+    let updated = 0;
+    const stored = new Map<string, { id: number; status: ScrapedPlace["status"] }>();
 
-  for (const place of places) {
-    const data = toLeadData(place, project);
-    try {
-      const existing = place.placeId
-        ? await prisma.lead.findUnique({ where: { googlePlaceId: place.placeId } })
-        : null;
-
-      const row = existing
-        ? await prisma.lead.update({
-            where: { id: existing.id },
-            data: { ...data, project: existing.project ?? project, email: data.email ?? existing.email },
-          })
-        : await prisma.lead.create({ data });
-
-      if (existing) updated++;
-      else saved++;
-      stored.set(place.id, { id: row.id, status: row.status });
-    } catch (error) {
-      // Same email + website already stored under another place: keep going.
-      if (!isUniqueViolation(error)) throw error;
+    for (const place of places) {
+      const data = toLeadData(place, project);
+      const existing = place.placeId ? tx.find((l) => l.googlePlaceId === place.placeId) : undefined;
+      try {
+        const row = existing
+          ? tx.update(existing.id, { ...data, project: existing.project ?? project, email: data.email ?? existing.email })
+          : tx.create(data);
+        if (!row) continue;
+        if (existing) updated++;
+        else saved++;
+        stored.set(place.id, { id: row.id, status: row.status });
+      } catch (error) {
+        // Same email + website already stored under another place: keep going.
+        if (!(error instanceof DuplicateLeadError)) throw error;
+      }
     }
-  }
 
-  return { saved, updated, stored };
+    return { saved, updated, stored };
+  });
 }
 
 /**
@@ -90,7 +86,10 @@ export async function GET(request: Request, { params }: { params: { runId: strin
     console.error("Failed to save scraped places:", error);
     run.saved = 0;
     run.updated = 0;
-    run.saveError = "Leads were found but could not be saved to the pipeline database.";
+    run.saveError =
+      error instanceof Error && error.name === "LeadStoreBusyError"
+        ? error.message
+        : "Leads were found but could not be saved to the leads spreadsheet.";
   }
 
   return NextResponse.json(run);

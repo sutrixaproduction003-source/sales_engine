@@ -13,7 +13,7 @@ import { PipelineLead } from "@/lib/types";
 
 /**
  * Leads Hub — fully dynamic. Leads are loaded from the backend
- * (GET /api/leads → Prisma pipeline DB); CSV import goes through
+ * (GET /api/leads → leads spreadsheet); CSV import goes through
  * POST /api/leads (server-side parsing + dedup). No hardcoded rows.
  */
 export function LeadsHub() {

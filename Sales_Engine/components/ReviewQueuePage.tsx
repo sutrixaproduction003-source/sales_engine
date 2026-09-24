@@ -183,7 +183,7 @@ export function ReviewQueuePageContent() {
                 )}
               </div>
 
-              {/* Decisions persist to the Prisma-backed lead pipeline. */}
+              {/* Decisions persist to the leads spreadsheet. */}
               <div className="flex flex-wrap justify-end gap-2">
                 <Button variant="secondary" disabled={savingId === lead.id} title="Editing message content is not implemented yet">
                   Edit

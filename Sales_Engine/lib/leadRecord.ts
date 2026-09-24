@@ -1,6 +1,6 @@
 /**
- * Mapping from a provider/CSV lead into the optional columns of the Prisma
- * Lead model. Shared by discovery, enrichment and CSV import so a lead is
+ * Mapping from a provider/CSV lead into the optional columns of a pipeline
+ * Lead (lib/leadModel). Shared by discovery, enrichment and CSV import so a lead is
  * stored the same way no matter how it entered the pipeline.
  */
 
@@ -99,9 +99,4 @@ export function toLeadDetails(item: ProviderLead) {
     latitude: toNumber(item.latitude),
     longitude: toNumber(item.longitude),
   };
-}
-
-/** Prisma unique-constraint violation (duplicate email + website). */
-export function isUniqueViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2002";
 }

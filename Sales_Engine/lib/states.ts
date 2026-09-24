@@ -3,7 +3,7 @@ import type { ComponentType } from "react";
 
 /**
  * Pipeline states — mirrored from the REAL backend contract:
- * the Prisma Lead model (LeadStatus) and GET /api/stats:
+ * the pipeline Lead model (lib/leadModel LeadStatus) and GET /api/stats:
  *   PENDING → SCRAPED → PERSONALIZED → SYNCED
  * The frontend displays only states actually returned by the backend.
  */

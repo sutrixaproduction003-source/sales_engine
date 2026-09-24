@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { DuplicateLeadError, transaction } from "@/lib/leadDb";
 import type { SearchProvider } from "@/lib/searchProviders";
 import { API_PROVIDERS } from "@/lib/searchProviders";
 import { postToBackend } from "@/lib/providerBackend";
-import { cleanString, isUniqueViolation, toLeadDetails, type ProviderLead } from "@/lib/leadRecord";
+import { cleanString, toLeadDetails, type ProviderLead } from "@/lib/leadRecord";
 
 export const runtime = "nodejs";
 
@@ -91,25 +91,31 @@ export async function POST(request: Request) {
     const items: SearchResultItem[] = data.data?.items || [];
 
     let saved = 0;
-    for (const item of items) {
-      const email = cleanString(item.email);
-      if (!email) continue;
-      try {
-        await prisma.lead.create({
-          data: {
-            ...toLeadDetails(item),
-            name: cleanString(item.fullName ?? item.name) || email.split("@")[0],
-            email,
-            website: cleanString(item.companyWebsite ?? item.website),
-            company: cleanString(item.companyName ?? item.company) || null,
-            source: cleanString(item.source) || provider,
-            status: "PENDING",
-          },
-        });
-        saved++;
-      } catch (error) {
-        if (!isUniqueViolation(error)) console.error("Failed to save search result:", error);
-      }
+    try {
+      saved = await transaction((tx) => {
+        let count = 0;
+        for (const item of items) {
+          const email = cleanString(item.email);
+          if (!email) continue;
+          try {
+            tx.create({
+              ...toLeadDetails(item),
+              name: cleanString(item.fullName ?? item.name) || email.split("@")[0],
+              email,
+              website: cleanString(item.companyWebsite ?? item.website),
+              company: cleanString(item.companyName ?? item.company) || null,
+              source: cleanString(item.source) || provider,
+              status: "PENDING",
+            });
+            count++;
+          } catch (error) {
+            if (!(error instanceof DuplicateLeadError)) throw error;
+          }
+        }
+        return count;
+      });
+    } catch (error) {
+      console.error("Failed to save search results:", error);
     }
 
     return NextResponse.json({ ...data, saved });
