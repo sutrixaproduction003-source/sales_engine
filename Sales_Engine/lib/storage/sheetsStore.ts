@@ -31,9 +31,9 @@ function sheetId(): string {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function sheetsRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function sheetsRequest<T>(path: string, init: RequestInit = {}, spreadsheetId = sheetId()): Promise<T> {
   for (let attempt = 0; ; attempt++) {
-    const response = await fetch(`${API}/${sheetId()}${path}`, {
+    const response = await fetch(`${API}/${spreadsheetId}${path}`, {
       ...init,
       headers: {
         Authorization: `Bearer ${await getAccessToken()}`,
@@ -118,6 +118,51 @@ export const sheetsStore: LeadStoreDriver = {
   write,
   version,
 };
+
+/**
+ * Write rows into a new tab of a spreadsheet (the connected sheet by default,
+ * or any sheet shared with the service account). Returns a link to the tab.
+ */
+export async function writeNewTab(title: string, rows: unknown[][], sheetLink?: string): Promise<string> {
+  const spreadsheetId = sheetLink ? parseSheetId(sheetLink) : sheetId();
+  const added = await sheetsRequest<{ replies: { addSheet: { properties: { sheetId: number } } }[] }>(
+    ":batchUpdate",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        requests: [{ addSheet: { properties: { title, gridProperties: { frozenRowCount: 1 } } } }],
+      }),
+    },
+    spreadsheetId
+  );
+  const tabId = added.replies[0].addSheet.properties.sheetId;
+
+  await sheetsRequest(
+    `/values/${encodeURIComponent(`'${title.replace(/'/g, "''")}'!A1`)}?valueInputOption=RAW`,
+    { method: "PUT", body: JSON.stringify({ values: rows.map((row) => row.map((v) => (v === null || v === undefined ? "" : v))) }) },
+    spreadsheetId
+  );
+  // Bold header row.
+  await sheetsRequest(
+    ":batchUpdate",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        requests: [
+          {
+            repeatCell: {
+              range: { sheetId: tabId, startRowIndex: 0, endRowIndex: 1 },
+              cell: { userEnteredFormat: { textFormat: { bold: true } } },
+              fields: "userEnteredFormat.textFormat.bold",
+            },
+          },
+        ],
+      }),
+    },
+    spreadsheetId
+  );
+  return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit#gid=${tabId}`;
+}
 
 export function sheetUrl(): string | null {
   const id = parseSheetId(getSetting("GOOGLE_SHEET_ID"));

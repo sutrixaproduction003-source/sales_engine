@@ -11,6 +11,7 @@ import { StateBadge } from "@/components/StateBadge";
 import { LeadDrawer } from "@/components/LeadDrawer";
 import { FilterBar, LeadFilters, EMPTY_FILTERS } from "./filters";
 import { PipelineLead } from "@/lib/types";
+import { LeadActions } from "./LeadActions";
 
 /**
  * Leads Hub — fully dynamic. Leads are loaded from the backend
@@ -106,6 +107,8 @@ export function LeadsHub() {
           />
         </div>
       </div>
+
+      <LeadActions leads={filtered} />
 
       {uploadMsg && (
         <p className={cn("text-sm", uploadMsg.ok ? "text-emerald-400" : "text-rose-400")}>{uploadMsg.text}</p>
