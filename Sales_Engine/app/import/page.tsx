@@ -5,13 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, ClipboardPaste, Loader2, Trash2, UploadCloud } from "lucide-react";
 import { Button, Card, Label, Select, cn } from "@/components/ui";
 import { apiCall } from "@/lib/api";
+import { apolloConfigured, findContacts } from "@/lib/apolloClient";
 import { getHubSpotStatus, syncToHubSpot, type HubSpotStatus } from "@/lib/hubspotClient";
 import { pollPlacesSearch, type PlacesRun, type ScrapedPlace } from "@/lib/places";
 import { PROJECTS } from "@/lib/projects";
 import { parseSalesNavigatorText, splitLocation, type SalesNavLead } from "@/lib/salesNavigatorImport";
 
 type ImportedLead = { key: string; id: number; created: boolean };
-type Step = "idle" | "saving" | "lookup" | "drafting" | "crm" | "done" | "error";
+type Step = "idle" | "saving" | "lookup" | "apollo" | "drafting" | "crm" | "done" | "error";
 
 interface Summary {
   created: number;
@@ -19,6 +20,11 @@ interface Summary {
   companies?: number;
   companiesFound?: number;
   withEmail?: number;
+  apolloLooked?: number;
+  apolloEmails?: number;
+  apolloPhones?: number;
+  apolloPending?: number;
+  apolloError?: string;
   drafted?: number;
   draftFailed?: number;
   hubspotSynced?: number;
@@ -41,12 +47,19 @@ export default function SalesNavigatorImportPage() {
   const [projectId, setProjectId] = useState(PROJECTS[0]?.id ?? "");
   const [lookupCompanies, setLookupCompanies] = useState(true);
   const [draftEmails, setDraftEmails] = useState(true);
+  const [apolloReady, setApolloReady] = useState<boolean | null>(null);
+  const [apolloEmails, setApolloEmails] = useState(true);
+  const [apolloPhones, setApolloPhones] = useState(false);
   const [hubspot, setHubspot] = useState<HubSpotStatus | null>(null);
   const [addToHubSpot, setAddToHubSpot] = useState(false);
   const [step, setStep] = useState<Step>("idle");
   const [progress, setProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
+
+  useEffect(() => {
+    apolloConfigured().then(setApolloReady);
+  }, []);
 
   useEffect(() => {
     getHubSpotStatus()
@@ -59,7 +72,7 @@ export default function SalesNavigatorImportPage() {
 
   const parsedPreview = useMemo(() => parseSalesNavigatorText(text), [text]);
   const selected = rows.filter((r) => !excluded.has(r.key));
-  const busy = step === "saving" || step === "lookup" || step === "drafting" || step === "crm";
+  const busy = step === "saving" || step === "lookup" || step === "apollo" || step === "drafting" || step === "crm";
 
   const addPaste = () => {
     const known = new Set(rows.map((r) => r.key));
@@ -138,7 +151,19 @@ export default function SalesNavigatorImportPage() {
         }
       }
 
-      // 3. Draft emails (only leads that now have an email can be drafted).
+      // 3. Work emails and mobile numbers from Apollo (Sales Navigator shows neither).
+      if (apolloReady && (apolloEmails || apolloPhones)) {
+        setStep("apollo");
+        const ids = saved.imported.map((l) => l.id);
+        const found = await findContacts(ids, { phone: apolloPhones }, setProgress);
+        result.apolloLooked = ids.length;
+        result.apolloEmails = found.emails;
+        result.apolloPhones = apolloPhones ? found.phones : undefined;
+        result.apolloPending = found.pending;
+        result.apolloError = found.error;
+      }
+
+      // 4. Draft emails (only leads that now have an email can be drafted).
       if (draftEmails) {
         setStep("drafting");
         let drafted = 0;
@@ -157,7 +182,7 @@ export default function SalesNavigatorImportPage() {
         result.draftFailed = failed;
       }
 
-      // 4. Add the imported leads to HubSpot (contacts + companies).
+      // 5. Add the imported leads to HubSpot (contacts + companies).
       if (addToHubSpot && hubspot?.connected) {
         setStep("crm");
         setProgress("Adding leads to HubSpot…");
@@ -287,6 +312,28 @@ export default function SalesNavigatorImportPage() {
                 <input type="checkbox" checked={lookupCompanies} onChange={(e) => setLookupCompanies(e.target.checked)} disabled={busy} />
                 Find each company&apos;s website, email &amp; location (Google Maps)
               </label>
+              {apolloReady ? (
+                <>
+                  <label className="flex items-center gap-2 text-sm text-slate-300" title="1 Apollo credit per person">
+                    <input type="checkbox" checked={apolloEmails} onChange={(e) => setApolloEmails(e.target.checked)} disabled={busy} />
+                    Find work emails (Apollo)
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-300" title="Up to 8 Apollo credits per mobile found">
+                    <input type="checkbox" checked={apolloPhones} onChange={(e) => setApolloPhones(e.target.checked)} disabled={busy} />
+                    Find mobile numbers (Apollo)
+                  </label>
+                </>
+              ) : (
+                apolloReady === false && (
+                  <span className="text-xs text-slate-500">
+                    Add your Apollo.io API key in{" "}
+                    <Link href="/settings" className="text-sky-300 hover:underline">
+                      Settings
+                    </Link>{" "}
+                    to find work emails and mobile numbers.
+                  </span>
+                )
+              )}
               {hubspot?.connected && (
                 <label className="flex items-center gap-2 text-sm text-slate-300">
                   <input type="checkbox" checked={addToHubSpot} onChange={(e) => setAddToHubSpot(e.target.checked)} disabled={busy} />
@@ -328,6 +375,15 @@ export default function SalesNavigatorImportPage() {
               <li>
                 Companies found on Google Maps: {summary.companiesFound ?? 0} of {summary.companies} ·{" "}
                 {summary.withEmail ?? 0} leads now have an email address
+              </li>
+            )}
+            {summary.apolloLooked !== undefined && (
+              <li>
+                Apollo: {summary.apolloEmails ?? 0} work emails
+                {summary.apolloPhones !== undefined && ` · ${summary.apolloPhones} mobile numbers`} found for{" "}
+                {summary.apolloLooked} people
+                {summary.apolloPending ? ` · ${summary.apolloPending} mobiles still coming (collected from Leads Hub later)` : ""}
+                {summary.apolloError && <span className="text-amber-300"> — {summary.apolloError}</span>}
               </li>
             )}
             {(summary.hubspotSynced !== undefined || summary.hubspotError) && (

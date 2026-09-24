@@ -7,6 +7,7 @@ const leadRoutes = require('./routes/leadRoutes');
 const scraperRoutes = require('./routes/scraperRoutes');
 const placesRoutes = require('./routes/placesRoutes');
 const peopleRoutes = require('./routes/peopleRoutes');
+const apolloRoutes = require('./routes/apolloRoutes');
 const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
 const logger = require('./utils/logger');
@@ -53,6 +54,7 @@ app.use('/api', leadRoutes);
 app.use('/api', scraperRoutes);
 app.use('/api', placesRoutes);
 app.use('/api', peopleRoutes);
+app.use('/api', apolloRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

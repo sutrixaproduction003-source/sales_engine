@@ -13,6 +13,7 @@ const { createError } = require('../../utils/errors');
 
 const SEARCH_PATH = '/mixed_people/api_search';
 const ENRICH_PATH = '/people/match';
+const PHONE_RESULT_PATH = '/webhook_result';
 
 const DEFAULT_PER_PAGE = 10;
 const MAX_PER_PAGE = 100;
@@ -86,6 +87,30 @@ function extractDomain(value) {
   } catch {
     return input.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
   }
+}
+
+/**
+ * Apollo's phone request_id is a 64-bit integer — larger than a JS number can
+ * hold exactly — so read it from the raw response text.
+ */
+function readRequestId(raw) {
+  const match = /"request_id"\s*:\s*"?(\d+)/.exec(String(raw || ''));
+  return match ? match[1] : null;
+}
+
+const PHONE_TYPE_RANK = { mobile: 0, work_direct: 1, direct: 1, other: 2, work_hq: 3, home: 4 };
+
+/** Numbers from a phone result, best first: mobile, then direct lines; valid before unverified. */
+function rankPhones(phoneNumbers) {
+  return (Array.isArray(phoneNumbers) ? phoneNumbers : [])
+    .map((p) => ({
+      number: String(p.sanitized_number || p.raw_number || '').trim(),
+      type: String(p.type_cd || p.type || 'other').toLowerCase(),
+      valid: !p.status_cd || p.status_cd === 'valid_number',
+      dnc: Boolean(p.dnc_status && p.dnc_status !== 'not_on_dnc'),
+    }))
+    .filter((p) => p.number)
+    .sort((a, b) => (PHONE_TYPE_RANK[a.type] ?? 2) - (PHONE_TYPE_RANK[b.type] ?? 2) || Number(b.valid) - Number(a.valid));
 }
 
 /** Build a readable error message from an Apollo error body. */
@@ -198,6 +223,15 @@ class ApolloProvider extends BaseProvider {
     // Set by BaseProvider's constructor; the key is always resolved per request.
   }
 
+  async get(path, config = {}) {
+    this.ensureConfigured();
+    try {
+      return await this.client.get(path, { ...config, headers: { ...config.headers, 'x-api-key': this.apiKey } });
+    } catch (error) {
+      throw mapNetworkError(error);
+    }
+  }
+
   async post(path, body, config = {}) {
     this.ensureConfigured();
     try {
@@ -215,7 +249,7 @@ class ApolloProvider extends BaseProvider {
       per_page: Number.isFinite(n) && n >= 1 ? Math.min(MAX_PER_PAGE, n) : DEFAULT_PER_PAGE,
     };
 
-    const query = filters.query || filters.q || filters.keywords;
+    const query = filters.query || filters.q || filters.keywords || filters.q_keywords;
     if (query) params.q = String(query);
 
     const listParams = {
@@ -229,6 +263,8 @@ class ApolloProvider extends BaseProvider {
       if (list.length) params[param] = list;
     }
 
+    if (params.person_titles) params.include_similar_titles = true;
+
     const industries = [...new Set(pickList(filters, ['industries', 'industry']).flatMap(toApolloIndustries))];
     if (industries.length) params.organization_industries = industries;
 
@@ -236,7 +272,7 @@ class ApolloProvider extends BaseProvider {
   }
 
   async searchPeople(filters = {}, page = 1) {
-    const requestBody = this.buildSearchParams({ page, perPage: DEFAULT_PER_PAGE, filters });
+    const requestBody = this.buildSearchParams({ page, perPage: filters.perPage || DEFAULT_PER_PAGE, filters });
     const { status, data = {} } = await this.post(SEARCH_PATH, requestBody);
 
     if (status < 200 || status >= 300) {
@@ -263,8 +299,12 @@ class ApolloProvider extends BaseProvider {
    * ID from People Search; email, LinkedIn URL, or name + domain also work.
    */
   async enrichPerson(input = {}) {
-    const { id, firstName, lastName, companyWebsite, email, linkedinUrl } = input;
-    const params = { reveal_personal_emails: false, reveal_phone_number: false };
+    const { id, firstName, lastName, companyWebsite, organizationName, email, linkedinUrl, revealPhone } = input;
+    // Mobile numbers are delivered later; poll_only lets us collect them with
+    // getPhoneResult instead of exposing a public webhook.
+    const params = revealPhone
+      ? { reveal_personal_emails: false, reveal_phone_number: true, poll_only: true }
+      : { reveal_personal_emails: false, reveal_phone_number: false };
 
     if (id) {
       params.id = String(id);
@@ -276,24 +316,37 @@ class ApolloProvider extends BaseProvider {
       if (firstName) params.first_name = String(firstName).trim();
       if (lastName) params.last_name = String(lastName).trim();
       if (companyWebsite) params.domain = extractDomain(companyWebsite);
+      if (organizationName) params.organization_name = String(organizationName).trim();
     }
 
     const hasIdentifier =
-      params.id || params.email || params.linkedin_url || (params.first_name && params.last_name && params.domain);
+      params.id ||
+      params.email ||
+      params.linkedin_url ||
+      (params.first_name && params.last_name && (params.domain || params.organization_name));
 
     if (!hasIdentifier) {
       throw createError(
-        'Apollo enrichment requires an Apollo person ID, email, LinkedIn URL, or name plus company domain.',
+        'Apollo enrichment requires an Apollo person ID, email, LinkedIn URL, or name plus company (domain or name).',
         'INVALID_ENRICHMENT_INPUT',
         400,
         { provider: 'apollo' }
       );
     }
 
-    const { status, data = {} } = await this.post(ENRICH_PATH, null, {
+    const response = await this.post(ENRICH_PATH, null, {
       params,
       headers: { 'Cache-Control': 'no-cache' },
+      transformResponse: [(raw) => raw],
     });
+    const { status } = response;
+    const raw = typeof response.data === 'string' ? response.data : JSON.stringify(response.data ?? null);
+    let data = {};
+    try {
+      data = JSON.parse(raw) || {};
+    } catch {
+      data = { raw };
+    }
 
     if (status < 200 || status >= 300) {
       throw createError(
@@ -309,7 +362,40 @@ class ApolloProvider extends BaseProvider {
       return { data: { lead: null, matched: false } };
     }
 
-    return { data: { lead: normalizeEnrichedPerson(person, input), matched: true } };
+    const lead = normalizeEnrichedPerson(person, input);
+    // Numbers Apollo already holds come back immediately; the rest via polling.
+    const known = rankPhones(person.phone_numbers);
+    if (!lead.phone && known.length) lead.phone = known[0].number;
+    const phoneRequestId = revealPhone ? readRequestId(raw) : null;
+    return { data: { lead, matched: true, phoneRequestId } };
+  }
+
+  /**
+   * Collect the phone numbers requested with enrichPerson({ revealPhone }).
+   * → { status: 'pending' | 'found' | 'none' | 'failed', phone, phones }
+   */
+  async getPhoneResult(requestId) {
+    if (!/^\d+$/.test(String(requestId || ''))) {
+      throw createError('Invalid phone request id.', 'INVALID_PHONE_REQUEST', 400, { provider: 'apollo' });
+    }
+    const { status, data = {} } = await this.get(`${PHONE_RESULT_PATH}/${requestId}`);
+
+    if (status === 404 && data?.error_code === 'result_pending') {
+      return { status: 'pending', retryAfterSeconds: Number(data.retry_after_seconds) || 10 };
+    }
+    if (status === 401 || status === 403) {
+      throw createError(apolloErrorMessage(data, 'Apollo rejected the API key.'), 'APOLLO_AUTH_ERROR', status, { provider: 'apollo' });
+    }
+    if (status < 200 || status >= 300) {
+      // Expired, unknown or invalid ids never resolve.
+      return { status: 'failed', reason: data?.error_code || apolloErrorMessage(data, `HTTP ${status}`) };
+    }
+    if (data.webhook_status === 'in_progress') return { status: 'pending', retryAfterSeconds: 10 };
+    if (data.webhook_status === 'failed') return { status: 'failed', reason: data.failure_reason || 'Apollo could not look up this number.' };
+
+    const people = Array.isArray(data.webhook_result?.people) ? data.webhook_result.people : [];
+    const phones = rankPhones(people.flatMap((p) => p.phone_numbers || []));
+    return phones.length ? { status: 'found', phone: phones[0].number, phones } : { status: 'none', phones: [] };
   }
 }
 

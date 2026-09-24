@@ -1,17 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Download, ExternalLink, FileSpreadsheet, Loader2, MailSearch, Sheet } from "lucide-react";
+import { ChevronDown, Download, ExternalLink, FileSpreadsheet, Loader2, MailSearch, Sheet, Smartphone } from "lucide-react";
 import { Button, cn } from "@/components/ui";
 import { apiCall } from "@/lib/api";
+import { apolloConfigured, findContacts, waitForPhones } from "@/lib/apolloClient";
 import { refreshLeads } from "@/lib/leadStore";
 import type { PipelineLead } from "@/lib/types";
 
 type Msg = { ok: boolean; text: string; link?: string } | null;
 
-/** A person with a full name at a company with a website — enough for a lookup. */
-const canLookUp = (lead: PipelineLead) =>
-  !lead.email && Boolean(lead.jobTitle) && lead.name.trim().includes(" ") && Boolean(lead.website || lead.linkedinUrl);
+/** A person (full name + job title) at a known company — enough for an Apollo lookup. */
+const isPerson = (lead: PipelineLead) =>
+  Boolean(lead.jobTitle) && lead.name.trim().includes(" ") && Boolean(lead.company || lead.website || lead.linkedinUrl);
+const canLookUp = (lead: PipelineLead) => !lead.email && isPerson(lead);
+const needsPhone = (lead: PipelineLead) => !lead.phone && lead.phoneStatus !== "none" && lead.phoneStatus !== "pending" && isPerson(lead);
 
 /**
  * Leads Hub actions for the leads currently shown: export (Excel / Google
@@ -25,9 +28,7 @@ export function LeadActions({ leads }: { leads: PipelineLead[] }) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    apiCall<{ providers?: { apollo?: { configured?: boolean } } }>("/api/providers/health")
-      .then((h) => setApolloReady(Boolean(h.providers?.apollo?.configured)))
-      .catch(() => setApolloReady(false));
+    apolloConfigured().then(setApolloReady);
   }, []);
 
   useEffect(() => {
@@ -39,6 +40,8 @@ export function LeadActions({ leads }: { leads: PipelineLead[] }) {
 
   const ids = leads.map((l) => l.id);
   const lookUpQueue = leads.filter(canLookUp);
+  const phoneQueue = leads.filter(needsPhone);
+  const pendingPhones = leads.filter((l) => l.phoneStatus === "pending");
 
   const exportExcel = async () => {
     setOpen(false);
@@ -81,35 +84,50 @@ export function LeadActions({ leads }: { leads: PipelineLead[] }) {
     }
   };
 
-  const findEmails = async () => {
-    setBusy("emails");
+  const runApollo = async (kind: "emails" | "phones") => {
+    const queue = kind === "phones" ? phoneQueue : lookUpQueue;
+    setBusy(kind);
     setMsg(null);
-    let found = 0;
-    let lastError = "";
-    for (let i = 0; i < lookUpQueue.length; i++) {
-      setMsg({ ok: true, text: `Looking up emails with Apollo · ${i + 1}/${lookUpQueue.length} · ${found} found` });
-      try {
-        const res = await apiCall<{ found: boolean }>(`/api/leads/${lookUpQueue[i].id}/find-email`, { method: "POST" });
-        if (res.found) found++;
-      } catch (err) {
-        lastError = err instanceof Error ? err.message : String(err);
-        // Configuration problems affect every lead — stop instead of repeating them.
-        if (/not configured|API key|credits|401|403/i.test(lastError)) break;
-      }
+    try {
+      const found = await findContacts(queue.map((l) => l.id), { phone: kind === "phones" }, (text) => setMsg({ ok: true, text }));
+      await refreshLeads();
+      const parts = [`${found.emails} work emails`];
+      if (kind === "phones") parts.push(`${found.phones} mobile numbers`);
+      setMsg({
+        ok: !found.error || found.emails + found.phones > 0,
+        text:
+          `Apollo found ${parts.join(" and ")} for ${queue.length} people.` +
+          (found.pending ? ` ${found.pending} mobiles are still coming — use "Collect mobiles" in a few minutes.` : "") +
+          (found.error ? ` Last error: ${found.error}` : ""),
+      });
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusy(null);
     }
-    await refreshLeads();
-    setMsg({
-      ok: found > 0 || !lastError,
-      text: `Found ${found} of ${lookUpQueue.length} emails.${lastError ? ` Last error: ${lastError}` : ""}`,
-    });
-    setBusy(null);
+  };
+
+  const collectPhones = async () => {
+    setBusy("collect");
+    setMsg(null);
+    try {
+      const res = await waitForPhones(pendingPhones.map((l) => l.id), (left, found) =>
+        setMsg({ ok: true, text: `Collecting mobile numbers from Apollo · ${left} pending · ${found} found` })
+      );
+      await refreshLeads();
+      setMsg({ ok: true, text: `Collected ${res.phones} mobile numbers.${res.pending ? ` ${res.pending} still pending.` : ""}` });
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusy(null);
+    }
   };
 
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Button
         variant="secondary"
-        onClick={findEmails}
+        onClick={() => runApollo("emails")}
         loading={busy === "emails"}
         disabled={busy !== null || !apolloReady || lookUpQueue.length === 0}
         title={
@@ -120,6 +138,26 @@ export function LeadActions({ leads }: { leads: PipelineLead[] }) {
       >
         <MailSearch className="h-4 w-4" /> Find missing emails{lookUpQueue.length ? ` (${lookUpQueue.length})` : ""}
       </Button>
+
+      <Button
+        variant="secondary"
+        onClick={() => runApollo("phones")}
+        loading={busy === "phones"}
+        disabled={busy !== null || !apolloReady || phoneQueue.length === 0}
+        title={
+          apolloReady === false
+            ? "Add your Apollo.io API key in Settings → API keys to look up mobile numbers"
+            : `Look up mobile numbers for ${phoneQueue.length} people (up to 8 Apollo credits per number found; also fills missing emails)`
+        }
+      >
+        <Smartphone className="h-4 w-4" /> Find mobile numbers{phoneQueue.length ? ` (${phoneQueue.length})` : ""}
+      </Button>
+
+      {pendingPhones.length > 0 && (
+        <Button variant="secondary" onClick={collectPhones} loading={busy === "collect"} disabled={busy !== null}>
+          Collect mobiles ({pendingPhones.length} pending)
+        </Button>
+      )}
 
       <div className="relative" ref={menuRef}>
         <Button variant="secondary" onClick={() => setOpen((o) => !o)} disabled={busy !== null || ids.length === 0}>
@@ -148,9 +186,10 @@ export function LeadActions({ leads }: { leads: PipelineLead[] }) {
           )}
         </span>
       )}
-      {apolloReady === false && lookUpQueue.length > 0 && !msg && (
+      {apolloReady === false && (lookUpQueue.length > 0 || phoneQueue.length > 0) && !msg && (
         <span className="basis-full text-xs text-slate-500">
-          {lookUpQueue.length} people have no email. To look them up, add your Apollo.io API key in Settings → API keys.
+          {lookUpQueue.length} people have no email and {phoneQueue.length} no mobile number. To look them up, add your Apollo.io
+          API key in Settings → API keys.
         </span>
       )}
     </div>
