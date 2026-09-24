@@ -29,8 +29,20 @@ export interface SalesNavLead {
 const DEGREE = /(?:^|\s)·?\s*(1st|2nd|3rd\+?|3rd)\s*$/i;
 const DATE_LINE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
 
+/** "Third-degree connection" — screen-reader text for the degree icon. */
+const DEGREE_LABEL = /^(first|second|third)[-\s]degree connection$/i;
+
 /** UI text that is never a lead field. */
 const NOISE = [
+  DEGREE_LABEL,
+  // Screen-reader labels for icons: "Saved badge", "Open to work badge", …
+  /\bbadge$/i,
+  /^status is (online|offline|reachable|away).*$/i,
+  /^(go to|view) .+('s)? profile$/i,
+  /^.+ is reachable$/i,
+  /^(premium|open to work|recently hired|new|hiring|verified)$/i,
+  /^(\d+\s+)?(mutual connections?|shared connections?)$/i,
+  /^(message|messaged|inmail)$/i,
   /^·$/,
   /^\d+\s+lists?$/i,
   /^add note$/i,
@@ -94,20 +106,28 @@ function splitBlocks(lines: string[]): string[][] {
   return blocks;
 }
 
+const LABEL_DEGREE: Record<string, string> = { first: "1st", second: "2nd", third: "3rd" };
+
 function parseBlock(block: string[]): SalesNavLead | null {
   let connection: string | null = null;
   let fields: string[] = [];
 
+  // The connection degree follows the name, so it anchors the row: anything
+  // earlier is page chrome (list name, column headers). Prefer the visible
+  // "· 3rd" marker; fall back to the "Third-degree connection" label.
+  const useVisibleMarker = block.some((line) => DEGREE.test(line));
+
   for (const raw of block) {
-    const degree = raw.match(DEGREE);
+    const visible = raw.match(DEGREE);
+    const label = raw.match(DEGREE_LABEL);
+    const isAnchor = useVisibleMarker ? Boolean(visible) : Boolean(label);
     let line = raw;
-    if (degree && !connection) {
-      connection = degree[1].toLowerCase();
-      line = raw.slice(0, degree.index).replace(/[\s·]+$/, "").trim();
-      // The degree follows the name (same line or the line before), so
-      // anything earlier in the block is page chrome (list name, headers).
-      if (line) fields = [];
-      else fields = fields.slice(-1);
+
+    if (visible) line = raw.slice(0, visible.index).replace(/[\s·]+$/, "").trim();
+    else if (label) line = "";
+    if (isAnchor && !connection) {
+      connection = visible ? visible[1].toLowerCase() : LABEL_DEGREE[label![1].toLowerCase()];
+      fields = line ? [] : fields.slice(-1);
     }
     if (!line || isNoise(line)) continue;
     fields.push(line);
