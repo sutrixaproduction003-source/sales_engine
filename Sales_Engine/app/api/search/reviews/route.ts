@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { postToBackend } from "@/lib/providerBackend";
 
 export const runtime = "nodejs";
 
@@ -7,15 +8,12 @@ interface ReviewSearchBody {
   location?: string;
 }
 
-const BACKEND_URL = process.env.LEAD_BACKEND_URL || "http://localhost:5000";
-
 async function fetchApifyRating(company: string, location: string) {
   const placeUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${company} ${location}`.trim())}`;
-  const response = await fetch(`${BACKEND_URL}/api/scrapers`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type: "googleMapsReviews", placeUrl, maxReviews: 50 }),
-    cache: "no-store",
+  const response = await postToBackend("/api/scrapers", {
+    type: "googleMapsReviews",
+    placeUrl,
+    maxReviews: 50,
   });
   if (!response.ok) return null;
   const payload = (await response.json()) as { items?: Array<Record<string, unknown>> };

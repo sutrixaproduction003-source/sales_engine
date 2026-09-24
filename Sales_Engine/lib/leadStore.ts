@@ -47,10 +47,6 @@ export function refreshLeads(): Promise<void> {
   return inFlight;
 }
 
-export function getLead(id: string): PipelineLead | undefined {
-  return state.leads.find((l) => String(l.id) === id);
-}
-
 export function subscribe(fn: Listener) {
   listeners.add(fn);
   return () => {

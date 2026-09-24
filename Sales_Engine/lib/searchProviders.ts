@@ -59,12 +59,4 @@ export const SEARCH_PROVIDERS = {
   },
 };
 
-export function getProviderLabel(provider: SearchProvider): string {
-  return SEARCH_PROVIDERS[provider]?.label || provider;
-}
-
-export function getProviderDescription(provider: SearchProvider): string {
-  return SEARCH_PROVIDERS[provider]?.description || "";
-}
-
 export const AVAILABLE_PROVIDERS = Object.keys(SEARCH_PROVIDERS) as SearchProvider[];

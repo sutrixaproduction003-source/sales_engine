@@ -61,16 +61,6 @@ export function PipelineCard(pairs: [LeadState, number][]) {
   );
 }
 
-export function Chip({ state, count, alt = false }: { state: LeadState; count: number; alt?: boolean }) {
-  const cfg = STATE_CONFIGS[state];
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${alt ? "border-slate-700 bg-slate-800 text-slate-400" : `${cfg.bg} ${cfg.border} ${cfg.text}`}`}>
-      <span className={`inline-block h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
-      {cfg.label}: {count}
-    </span>
-  );
-}
-
 function Arrow({ className = "" }: { className?: string }) {
   return <svg className={className} fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path d="M6 12l12 0" strokeLinecap="round" /></svg>;
 }

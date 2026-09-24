@@ -20,3 +20,8 @@
 Thumbs.db
 # Local Netlify folder
 .netlify
+
+# Local debug output
+*_out*.txt
+*-out.txt
+backend_run*.txt

@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { PROVIDER_BACKEND_URL } from "@/lib/providerBackend";
+import { postToBackend } from "@/lib/providerBackend";
+import {
+  isUniqueViolation,
+  toLeadDetails,
+  toNumber,
+  type ProviderLead,
+} from "@/lib/leadRecord";
 import { getProject, getProjectProvider, mergeProjectFilters } from "@/lib/projects";
 import { GEOCODE_MAX_PER_REQUEST, geocodeEnabled, geocodeLocation } from "@/lib/geocode";
 import {
@@ -23,41 +29,6 @@ export const runtime = "nodejs";
  * No project-specific branches exist anywhere in this route.
  */
 
-interface NormalizedProviderLead {
-  id?: string;
-  firstName?: string;
-  lastName?: string;
-  fullName?: string;
-  jobTitle?: string;
-  companyName?: string;
-  companyWebsite?: string;
-  email?: string;
-  emailStatus?: string;
-  phone?: string;
-  linkedinUrl?: string;
-  location?: string;
-  industry?: string;
-  latitude?: number | string | null;
-  longitude?: number | string | null;
-  source?: string;
-  hotelName?: string;
-  brandType?: string;
-  propertySizeCategory?: string;
-  city?: string;
-  state?: string;
-  exactAddress?: string;
-  googleMapsLink?: string;
-  googleBusinessLink?: string;
-  tripAdvisorLink?: string;
-  bookingComLink?: string;
-  makeMyTripLink?: string;
-  instagramLink?: string;
-  facebookLink?: string;
-  googleRating?: number | string | null;
-  totalReviewsCount?: number | string | null;
-  sentimentScore?: number | string | null;
-}
-
 interface DiscoverBody {
   project?: string;
   /** Optional provider override; must be supported by the backend providerFactory. */
@@ -69,11 +40,6 @@ interface DiscoverBody {
     job_title?: string;
   };
   page?: number;
-}
-
-function toCoord(value: unknown): number | null {
-  const n = typeof value === "string" ? Number(value) : (value as number);
-  return typeof n === "number" && Number.isFinite(n) ? n : null;
 }
 
 export async function POST(request: Request) {
@@ -118,12 +84,7 @@ export async function POST(request: Request) {
   // 1. Forward to the existing provider backend.
   let providerRes: Response;
   try {
-    providerRes = await fetch(`${PROVIDER_BACKEND_URL}/api/leads/search`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(providerPayload),
-      cache: "no-store",
-    });
+    providerRes = await postToBackend("/api/leads/search", providerPayload);
   } catch {
     return NextResponse.json(
       { error: "Provider backend is unreachable. Start the CRM backend (backendZip) and try again." },
@@ -133,7 +94,7 @@ export async function POST(request: Request) {
 
   const payload = (await providerRes.json().catch(() => null)) as {
     success?: boolean;
-    data?: { items?: NormalizedProviderLead[] };
+    data?: { items?: ProviderLead[] };
     error?: { message?: string };
   } | null;
 
@@ -151,7 +112,7 @@ export async function POST(request: Request) {
   // the actual guarantee behind the category chips; provider search is only
   // a pre-filter and is always noisy.
   let filteredOut = 0;
-  const kept: NormalizedProviderLead[] = [];
+  const kept: ProviderLead[] = [];
   if (categoryIds.length > 0) {
     for (const item of items) {
       if (leadMatchesCategories(item, categoryIds)) {
@@ -171,7 +132,7 @@ export async function POST(request: Request) {
   let geocoded = 0;
   if (geocodeEnabled()) {
     for (const item of kept) {
-      if (toCoord(item.latitude) !== null && toCoord(item.longitude) !== null) continue;
+      if (toNumber(item.latitude) !== null && toNumber(item.longitude) !== null) continue;
       if (geocoded >= GEOCODE_MAX_PER_REQUEST) break;
       if (!item.location?.trim()) continue;
       const coords = await geocodeLocation(item.location);
@@ -193,40 +154,18 @@ export async function POST(request: Request) {
     try {
       await prisma.lead.create({
         data: {
+          ...toLeadDetails(item),
           name: (item.fullName ?? "").trim() || email.split("@")[0],
-          hotelName: (item.hotelName ?? item.companyName ?? "").trim() || null,
-          brandType: (item.brandType ?? "").trim() || null,
-          propertySizeCategory: (item.propertySizeCategory ?? "").trim() || null,
           email,
           website: (item.companyWebsite ?? "").trim(),
-          company: (item.companyName ?? "").trim() || null,
-          jobTitle: (item.jobTitle ?? "").trim() || null,
-          phone: (item.phone ?? "").trim() || null,
-          linkedinUrl: (item.linkedinUrl ?? "").trim() || null,
-          location: (item.location ?? "").trim() || null,
-          city: (item.city ?? "").trim() || null,
-          state: (item.state ?? "").trim() || null,
-          exactAddress: (item.exactAddress ?? "").trim() || null,
-          googleMapsLink: (item.googleMapsLink ?? "").trim() || null,
-          industry: (item.industry ?? "").trim() || null,
           project,
           source: (item.source ?? provider).trim() || provider,
-          googleBusinessLink: (item.googleBusinessLink ?? "").trim() || null,
-          tripAdvisorLink: (item.tripAdvisorLink ?? "").trim() || null,
-          bookingComLink: (item.bookingComLink ?? "").trim() || null,
-          makeMyTripLink: (item.makeMyTripLink ?? "").trim() || null,
-          instagramLink: (item.instagramLink ?? "").trim() || null,
-          facebookLink: (item.facebookLink ?? "").trim() || null,
-          googleRating: toCoord(item.googleRating),
-          totalReviewsCount: toCoord(item.totalReviewsCount),
-          sentimentScore: toCoord(item.sentimentScore),
-          latitude: toCoord(item.latitude),
-          longitude: toCoord(item.longitude),
         },
       });
       saved++;
-    } catch {
-      duplicates++;
+    } catch (error) {
+      if (isUniqueViolation(error)) duplicates++;
+      else console.error("Failed to save discovered lead:", error);
     }
   }
 
@@ -260,8 +199,8 @@ export async function POST(request: Request) {
       exactAddress: item.exactAddress ?? "",
       googleMapsLink: item.googleMapsLink ?? "",
       industry: item.industry ?? "",
-      latitude: toCoord(item.latitude),
-      longitude: toCoord(item.longitude),
+      latitude: toNumber(item.latitude),
+      longitude: toNumber(item.longitude),
       source: item.source ?? provider,
       googleBusinessLink: item.googleBusinessLink ?? "",
       tripAdvisorLink: item.tripAdvisorLink ?? "",
@@ -269,9 +208,9 @@ export async function POST(request: Request) {
       makeMyTripLink: item.makeMyTripLink ?? "",
       instagramLink: item.instagramLink ?? "",
       facebookLink: item.facebookLink ?? "",
-      googleRating: toCoord(item.googleRating),
-      totalReviewsCount: toCoord(item.totalReviewsCount),
-      sentimentScore: toCoord(item.sentimentScore),
+      googleRating: toNumber(item.googleRating),
+      totalReviewsCount: toNumber(item.totalReviewsCount),
+      sentimentScore: toNumber(item.sentimentScore),
       state: row ? row.status : "NEW",
     };
   });

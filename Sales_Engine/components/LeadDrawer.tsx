@@ -15,6 +15,17 @@ import {
 } from "@/components/drawerParts";
 
 /** Scoring badge component */
+/** intentSignals is stored as a JSON-stringified array; tolerate bad data. */
+function parseSignals(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
 function ScoreBadge({ label, score }: { label: string; score: number }) {
   const getColor = (s: number) => {
     if (s >= 80) return "bg-green-900 text-green-200";
@@ -42,9 +53,11 @@ export function LeadDrawer({ lead, onClose }: { lead: PipelineLead | null; onClo
       (lead.buyingPowerScore ?? 0)) /
     3;
 
-  const intentSignals = lead.intentSignals
-    ? JSON.parse(lead.intentSignals)
-    : [];
+  const hasScores = [lead.relevanceScore, lead.intentScore, lead.buyingPowerScore].some(
+    (score) => (score ?? 0) > 0
+  );
+
+  const intentSignals = parseSignals(lead.intentSignals);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -70,7 +83,7 @@ export function LeadDrawer({ lead, onClose }: { lead: PipelineLead | null; onClo
 
         <div className="space-y-5 p-5">
           {/* Scoring Section */}
-          {(lead.relevanceScore ?? lead.intentScore ?? lead.buyingPowerScore) && (
+          {hasScores && (
             <DrawerSection title={<div className="flex items-center gap-2"><Zap className="h-4 w-4" /> Lead Score</div>}>
               <div className="space-y-3">
                 <div className="text-center rounded-lg bg-slate-900 px-3 py-2">

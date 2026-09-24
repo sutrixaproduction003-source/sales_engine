@@ -1,0 +1,107 @@
+/**
+ * Mapping from a provider/CSV lead into the optional columns of the Prisma
+ * Lead model. Shared by discovery, enrichment and CSV import so a lead is
+ * stored the same way no matter how it entered the pipeline.
+ */
+
+/** Lead fields as returned by the provider backend (normalized camelCase). */
+export interface ProviderLead {
+  id?: string;
+  firstName?: string;
+  lastName?: string;
+  fullName?: string;
+  jobTitle?: string;
+  companyName?: string;
+  companyWebsite?: string;
+  email?: string;
+  emailStatus?: string;
+  phone?: string;
+  linkedinUrl?: string;
+  location?: string;
+  industry?: string;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  source?: string;
+  hotelName?: string;
+  brandType?: string;
+  propertySizeCategory?: string;
+  city?: string;
+  state?: string;
+  exactAddress?: string;
+  googleMapsLink?: string;
+  googleBusinessLink?: string;
+  tripAdvisorLink?: string;
+  bookingComLink?: string;
+  makeMyTripLink?: string;
+  instagramLink?: string;
+  facebookLink?: string;
+  googleRating?: number | string | null;
+  totalReviewsCount?: number | string | null;
+  sentimentScore?: number | string | null;
+}
+
+/** Trimmed string, or "" for anything that is not a string. */
+export function cleanString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+const stringOrNull = (value: unknown): string | null => cleanString(value) || null;
+
+/** Finite number from a number or numeric string, otherwise null. */
+export function toNumber(value: unknown): number | null {
+  if (typeof value === "string" && !value.trim()) return null;
+  const n = typeof value === "string" ? Number(value) : value;
+  return typeof n === "number" && Number.isFinite(n) ? n : null;
+}
+
+const toInt = (value: unknown): number | null => {
+  const n = toNumber(value);
+  return n === null ? null : Math.round(n);
+};
+
+export const NUMERIC_LEAD_FIELDS = [
+  "googleRating",
+  "totalReviewsCount",
+  "sentimentScore",
+  "latitude",
+  "longitude",
+] as const;
+
+/**
+ * Optional Lead columns derived from a provider lead. Identity columns
+ * (name, email, website) and pipeline columns (project, source, status) are
+ * left to the caller.
+ */
+export function toLeadDetails(item: ProviderLead) {
+  return {
+    hotelName: stringOrNull(item.hotelName) ?? stringOrNull(item.companyName),
+    brandType: stringOrNull(item.brandType),
+    propertySizeCategory: stringOrNull(item.propertySizeCategory),
+    company: stringOrNull(item.companyName),
+    jobTitle: stringOrNull(item.jobTitle),
+    phone: stringOrNull(item.phone),
+    linkedinUrl: stringOrNull(item.linkedinUrl),
+    location: stringOrNull(item.location),
+    city: stringOrNull(item.city),
+    state: stringOrNull(item.state),
+    exactAddress: stringOrNull(item.exactAddress),
+    googleMapsLink: stringOrNull(item.googleMapsLink),
+    industry: stringOrNull(item.industry),
+    googleBusinessLink: stringOrNull(item.googleBusinessLink),
+    tripAdvisorLink: stringOrNull(item.tripAdvisorLink),
+    bookingComLink: stringOrNull(item.bookingComLink),
+    makeMyTripLink: stringOrNull(item.makeMyTripLink),
+    instagramLink: stringOrNull(item.instagramLink),
+    facebookLink: stringOrNull(item.facebookLink),
+    googleRating: toNumber(item.googleRating),
+    totalReviewsCount: toInt(item.totalReviewsCount),
+    sentimentScore: toNumber(item.sentimentScore),
+    latitude: toNumber(item.latitude),
+    longitude: toNumber(item.longitude),
+  };
+}
+
+/** Prisma unique-constraint violation (duplicate email + website). */
+export function isUniqueViolation(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2002";
+}
