@@ -1,4 +1,0 @@
-﻿/dispatch -> 200 OK
-/review -> 200 OK
-/review-queue -> 200 OK
-/integrations -> 200 OK

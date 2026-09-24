@@ -55,7 +55,11 @@ npm run dev
 - `POST /api/leads/email-finder`
 - `POST /api/leads/email-verify`
 - `POST /api/companies/search`
+- `GET /api/providers/:provider/account`
 - `PATCH /api/leads/:id/status`
+- `POST /api/scrapers` (Apify: `instagram`, `facebook`, `googleMapsReviews`, `makemytripReviews`, `makemytripHotels`; needs `APIFY_TOKEN`)
+
+The same scrapers are exposed as an MCP stdio server via `npm run mcp`.
 
 ## Example requests
 

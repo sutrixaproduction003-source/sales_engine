@@ -116,32 +116,9 @@ function getCategoryForSubCategory(subCategory) {
     return null;
 }
 
-/**
- * Get a category object by ID.
- */
-function getLeadCategory(category) {
-    return Object.values(LEAD_CATEGORIES).find(
-        (item) => item.id === category
-    ) || null;
-}
-
-/**
- * Get a sub-category object by ID.
- */
-function getLeadSubCategory(subCategory) {
-    return (
-        ALL_LEAD_SUBCATEGORIES.find(
-            (item) => item.id === subCategory
-        ) || null
-    );
-}
-
 module.exports = {
     LEAD_CATEGORIES,
-    ALL_LEAD_SUBCATEGORIES,
     isValidLeadCategory,
     isValidLeadSubCategory,
     getCategoryForSubCategory,
-    getLeadCategory,
-    getLeadSubCategory,
 };

@@ -1,11 +1,3 @@
-function successResponse(data = {}, meta = {}) {
-  return {
-    success: true,
-    data,
-    ...meta,
-  };
-}
-
 function errorResponse(code, message, details = null) {
   return {
     success: false,
@@ -18,6 +10,5 @@ function errorResponse(code, message, details = null) {
 }
 
 module.exports = {
-  successResponse,
   errorResponse,
 };

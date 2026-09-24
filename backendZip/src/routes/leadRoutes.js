@@ -1,657 +1,227 @@
 const express = require('express');
 
-const {
-  searchLeads,
-  enrichLead,
-  findEmail,
-  verifyEmail,
-  searchCompanies,
-} = require('../services/leadService');
-
+const leadService = require('../services/leadService');
 const providerFactory = require('../services/providerFactory');
 const leadRepository = require('../repositories/leadRepository');
+const { asyncHandler, createError } = require('../utils/errors');
 
 const router = express.Router();
 
-/**
- * Convert unknown errors into a safe API error response.
- *
- * Provider/API keys and sensitive response data are never exposed.
- */
-function handleError(res, error, fallbackMessage = 'Request failed.') {
-  const statusCode =
-    Number(error?.statusCode) ||
-    Number(error?.status) ||
-    500;
+const DOMAIN_PATTERN = /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  const safeStatus =
-    statusCode >= 400 && statusCode <= 599
-      ? statusCode
-      : 500;
+/** First non-empty trimmed string among the given body keys. */
+function readString(body, ...keys) {
+  for (const key of keys) {
+    if (typeof body[key] === 'string' && body[key].trim()) return body[key].trim();
+  }
+  return '';
+}
 
-  const code =
-    error?.code ||
-    'PROVIDER_ERROR';
+function readFilters(body) {
+  return body.filters && typeof body.filters === 'object' ? body.filters : {};
+}
 
-  let message =
-    error?.message ||
-    fallbackMessage;
-
-  // Avoid leaking raw API credentials or provider internals.
-  message = String(message)
-    .replace(/x-api-key/gi, 'API key')
-    .replace(/api[_ -]?key/gi, 'API key');
-
-  return res.status(safeStatus).json({
-    success: false,
-    error: {
-      code,
-      message,
-    },
-  });
+function readPage(body) {
+  const page = Number(body.page);
+  return Number.isInteger(page) && page > 0 ? page : 1;
 }
 
 /**
- * Validate a provider name before passing it into the service layer.
+ * Require a provider name in the body (or `:provider` param) and expose it,
+ * normalized, as `req.provider`.
  */
-function validateProvider(provider) {
-  if (!provider || typeof provider !== 'string') {
-    return {
-      valid: false,
-      message: 'Provider is required.',
+function requireProvider(req, res, next) {
+  const raw = req.params.provider ?? req.body?.provider;
+  if (!raw || typeof raw !== 'string') {
+    return next(createError('Provider is required.', 'INVALID_PROVIDER', 400));
+  }
+  req.provider = providerFactory.normalizeProviderName(raw);
+  return next();
+}
+
+/**
+ * Respond with a provider result, exposing its fields both under `data` and
+ * at the top level (the shape existing clients read).
+ */
+function sendProviderResult(res, provider, result) {
+  const spread = result && typeof result === 'object' && !Array.isArray(result) ? result : {};
+  return res.json({ success: true, provider, data: result?.data ?? result, ...spread });
+}
+
+/**
+ * GET /api/crm/health — provider configuration status.
+ */
+router.get('/crm/health', (req, res) => {
+  res.json({ success: true, providers: providerFactory.getProviderStatuses() });
+});
+
+/**
+ * POST /api/leads/search — search people through the selected provider.
+ *
+ * { "provider": "apollo", "filters": { "job_title": "General Manager", "location": "India" }, "page": 1 }
+ */
+router.post(
+  '/leads/search',
+  requireProvider,
+  asyncHandler(async (req, res) => {
+    const body = req.body || {};
+    const page = readPage(body);
+    const result = await leadService.searchLeads(req.provider, readFilters(body), page);
+
+    res.json({
+      success: true,
+      provider: req.provider,
+      data: result.data,
+      items: result.items,
+      leads: result.leads,
+      total: result.total,
+      page: result.page ?? page,
+      perPage: result.perPage,
+      saved: result.saved,
+      duplicates: result.duplicates,
+    });
+  })
+);
+
+/**
+ * POST /api/leads/enrich — enrich a single person.
+ *
+ * Accepts a provider person id (preferred, e.g. from Apollo search), an email,
+ * a LinkedIn URL, or first name + last name + company website.
+ */
+router.post(
+  '/leads/enrich',
+  requireProvider,
+  asyncHandler(async (req, res) => {
+    const body = req.body || {};
+    const input = {
+      id: readString(body, 'id'),
+      firstName: readString(body, 'firstName', 'first_name'),
+      lastName: readString(body, 'lastName', 'last_name'),
+      companyWebsite: readString(body, 'companyWebsite', 'company_website', 'domain'),
+      email: readString(body, 'email'),
+      linkedinUrl: readString(body, 'linkedinUrl', 'linkedin_url'),
     };
-  }
 
-  return {
-    valid: true,
-    provider: provider.trim().toLowerCase(),
-  };
-}
-
-/**
- * GET /api/crm/health
- *
- * Health check endpoint that returns provider configuration status.
- */
-router.get('/crm/health', async (req, res) => {
-  try {
-    const providers = {};
-
-    // Check each provider's configuration
-    const providerNames = ['prospeo', 'hunter', 'apollo'];
-
-    for (const providerName of providerNames) {
-      try {
-        const provider = providerFactory.getProvider(providerName);
-        providers[providerName] = {
-          configured: typeof provider.isConfigured === 'function' 
-            ? Boolean(provider.isConfigured()) 
-            : true,
-        };
-      } catch (error) {
-        providers[providerName] = {
-          configured: false,
-          error: 'Failed to load provider',
-        };
-      }
-    }
-
-    return res.json({
-      success: true,
-      providers,
-    });
-  } catch (error) {
-    return handleError(
-      res,
-      error,
-      'Health check failed.'
-    );
-  }
-});
-
-/**
- * POST /api/leads/search
- *
- * Search people/leads through the selected provider.
- *
- * Example:
- * {
- *   "provider": "apollo",
- *   "filters": {
- *     "job_title": "General Manager",
- *     "location": "India",
- *     "industry": "hospitality"
- *   },
- *   "page": 1
- * }
- */
-router.post('/leads/search', async (req, res) => {
-  try {
-    const body = req.body || {};
-
-    const providerValidation =
-      validateProvider(body.provider);
-
-    if (!providerValidation.valid) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'INVALID_PROVIDER',
-          message: providerValidation.message,
-        },
-      });
-    }
-
-    const provider = providerValidation.provider;
-
-    const filters =
-      body.filters &&
-        typeof body.filters === 'object'
-        ? body.filters
-        : {};
-
-    const page =
-      Number.isInteger(Number(body.page)) &&
-        Number(body.page) > 0
-        ? Number(body.page)
-        : 1;
-
-    const result = await searchLeads(
-      provider,
-      filters,
-      page
-    );
-
-    return res.json({
-      success: true,
-      provider,
-      data: result.data,
-      items: result.items || result.data?.items || [],
-      leads: result.leads || result.data?.leads || [],
-      total: result.total ?? result.data?.total ?? 0,
-      page: result.page ?? result.data?.page ?? page,
-      perPage:
-        result.perPage ??
-        result.data?.perPage ??
-        undefined,
-      saved: result.saved ?? 0,
-      duplicates: result.duplicates ?? 0,
-    });
-  } catch (error) {
-    return handleError(
-      res,
-      error,
-      'Lead search failed.'
-    );
-  }
-});
-
-/**
- * POST /api/leads/enrich
- *
- * Enrich a single person through the selected provider.
- *
- * Apollo can use its person ID returned by search:
- *
- * {
- *   "provider": "apollo",
- *   "id": "..."
- * }
- *
- * Or fallback matching information:
- *
- * {
- *   "provider": "apollo",
- *   "firstName": "John",
- *   "lastName": "Doe",
- *   "companyWebsite": "example.com",
- *   "linkedinUrl": "..."
- * }
- */
-router.post('/leads/enrich', async (req, res) => {
-  try {
-    const body = req.body || {};
-
-    const providerValidation =
-      validateProvider(body.provider);
-
-    if (!providerValidation.valid) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'INVALID_PROVIDER',
-          message: providerValidation.message,
-        },
-      });
-    }
-
-    const provider = providerValidation.provider;
-
-    const id =
-      typeof body.id === 'string'
-        ? body.id.trim()
-        : '';
-
-    const firstName =
-      typeof body.firstName === 'string'
-        ? body.firstName.trim()
-        : typeof body.first_name === 'string'
-          ? body.first_name.trim()
-          : '';
-
-    const lastName =
-      typeof body.lastName === 'string'
-        ? body.lastName.trim()
-        : typeof body.last_name === 'string'
-          ? body.last_name.trim()
-          : '';
-
-    const companyWebsite =
-      typeof body.companyWebsite === 'string'
-        ? body.companyWebsite.trim()
-        : typeof body.company_website === 'string'
-          ? body.company_website.trim()
-          : typeof body.domain === 'string'
-            ? body.domain.trim()
-            : '';
-
-    const email =
-      typeof body.email === 'string'
-        ? body.email.trim()
-        : '';
-
-    const linkedinUrl =
-      typeof body.linkedinUrl === 'string'
-        ? body.linkedinUrl.trim()
-        : typeof body.linkedin_url === 'string'
-          ? body.linkedin_url.trim()
-          : '';
-
-    /*
-     * At least one useful Apollo matching identifier is required.
-     *
-     * An Apollo person ID is preferred because it comes directly from
-     * the previous Apollo search result.
-     */
-    if (
-      !id &&
-      !email &&
-      !linkedinUrl &&
-      (!firstName || !lastName || !companyWebsite)
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'INVALID_ENRICHMENT_INPUT',
-          message:
-            'Provide a person id, email, LinkedIn URL, or first name + last name + company website.',
-        },
-      });
-    }
-
-    const result = await enrichLead(
-      provider,
-      {
-        id,
-        firstName,
-        lastName,
-        companyWebsite,
-        email,
-        linkedinUrl,
-      }
-    );
-
-    return res.json({
-      success: true,
-      provider,
-      data: result.data,
-      lead: result.lead || result.data?.lead,
-      matched:
-        result.matched ??
-        result.data?.matched ??
-        true,
-      saved:
-        result.saved ??
-        result.data?.saved ??
-        false,
-    });
-  } catch (error) {
-    return handleError(
-      res,
-      error,
-      'Lead enrichment failed.'
-    );
-  }
-});
-
-/**
- * POST /api/leads/find-email
- *
- * Existing email-finder functionality.
- */
-router.post('/leads/find-email', async (req, res) => {
-  try {
-    const body = req.body || {};
-
-    const providerValidation =
-      validateProvider(body.provider);
-
-    if (!providerValidation.valid) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'INVALID_PROVIDER',
-          message: providerValidation.message,
-        },
-      });
-    }
-
-    const provider = providerValidation.provider;
-
-    const result = await findEmail(
-      provider,
-      body
-    );
-
-    return res.json({
-      success: true,
-      provider,
-      data: result?.data ?? result,
-      ...(
-        result &&
-          typeof result === 'object' &&
-          !Array.isArray(result)
-          ? result
-          : {}
-      ),
-    });
-  } catch (error) {
-    return handleError(
-      res,
-      error,
-      'Email finding failed.'
-    );
-  }
-});
-
-/**
- * POST /api/leads/verify-email
- *
- * Existing email verification functionality.
- */
-router.post('/leads/verify-email', async (req, res) => {
-  try {
-    const body = req.body || {};
-
-    const providerValidation =
-      validateProvider(body.provider);
-
-    if (!providerValidation.valid) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'INVALID_PROVIDER',
-          message: providerValidation.message,
-        },
-      });
-    }
-
-    const provider = providerValidation.provider;
-
-    const result = await verifyEmail(
-      provider,
-      body
-    );
-
-    return res.json({
-      success: true,
-      provider,
-      data: result?.data ?? result,
-      ...(
-        result &&
-          typeof result === 'object' &&
-          !Array.isArray(result)
-          ? result
-          : {}
-      ),
-    });
-  } catch (error) {
-    return handleError(
-      res,
-      error,
-      'Email verification failed.'
-    );
-  }
-});
-
-/**
- * POST /api/companies/search
- *
- * Search companies through the selected provider.
- */
-router.post('/companies/search', async (req, res) => {
-  try {
-    const body = req.body || {};
-
-    const providerValidation =
-      validateProvider(body.provider);
-
-    if (!providerValidation.valid) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'INVALID_PROVIDER',
-          message: providerValidation.message,
-        },
-      });
-    }
-
-    const provider = providerValidation.provider;
-
-    const filters =
-      body.filters &&
-        typeof body.filters === 'object'
-        ? body.filters
-        : {};
-
-    const page =
-      Number.isInteger(Number(body.page)) &&
-        Number(body.page) > 0
-        ? Number(body.page)
-        : 1;
-
-    const result = await searchCompanies(
-      provider,
-      filters,
-      page
-    );
-
-    return res.json({
-      success: true,
-      provider,
-      data: result?.data ?? result,
-      ...(
-        result &&
-          typeof result === 'object' &&
-          !Array.isArray(result)
-          ? result
-          : {}
-      ),
-    });
-  } catch (error) {
-    return handleError(
-      res,
-      error,
-      'Company search failed.'
-    );
-  }
-});
-
-/**
- * GET /api/providers/:provider/account
- *
- * Return provider account/configuration information when supported.
- *
- * This route deliberately does not expose API keys.
- */
-router.get('/providers/:provider/account', async (req, res) => {
-  try {
-    const providerName =
-      String(req.params.provider || '')
-        .trim()
-        .toLowerCase();
-
-    const providerValidation =
-      validateProvider(providerName);
-
-    if (!providerValidation.valid) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'INVALID_PROVIDER',
-          message: providerValidation.message,
-        },
-      });
-    }
-
-    let provider;
-
-    try {
-      provider =
-        providerFactory.getProvider(providerName);
-    } catch (error) {
-      return handleError(
-        res,
-        error,
-        'Unable to load provider.'
+    const hasName = input.firstName && input.lastName && input.companyWebsite;
+    if (!input.id && !input.email && !input.linkedinUrl && !hasName) {
+      throw createError(
+        'Provide a person id, email, LinkedIn URL, or first name + last name + company website.',
+        'INVALID_ENRICHMENT_INPUT',
+        400
       );
     }
 
-    if (!provider) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: 'UNSUPPORTED_PROVIDER',
-          message:
-            `Unsupported provider: ${providerName}`,
-        },
-      });
-    }
+    const result = await leadService.enrichLead(req.provider, input);
 
-    /*
-     * Some providers expose an account method.
-     * If they do not, return safe configuration information.
-     */
-    if (
-      typeof provider.getAccount === 'function'
-    ) {
-      const account =
-        await provider.getAccount();
-
-      return res.json({
-        success: true,
-        provider: providerName,
-        data: account,
-      });
-    }
-
-    if (
-      typeof provider.getAccountInfo === 'function'
-    ) {
-      const account =
-        await provider.getAccountInfo();
-
-      return res.json({
-        success: true,
-        provider: providerName,
-        data: account,
-      });
-    }
-
-    return res.json({
+    res.json({
       success: true,
-      provider: providerName,
-      data: {
-        configured:
-          typeof provider.isConfigured === 'function'
-            ? Boolean(provider.isConfigured())
-            : true,
-      },
+      provider: req.provider,
+      data: result.data,
+      lead: result.lead,
+      matched: result.matched,
+      saved: result.saved,
     });
-  } catch (error) {
-    return handleError(
-      res,
-      error,
-      'Unable to retrieve provider account information.'
-    );
-  }
-});
+  })
+);
 
 /**
- * PATCH /api/leads/:id/status
+ * POST /api/leads/find-email (alias: /api/leads/email-finder)
  *
- * Update pipeline status for an existing lead.
+ * { "provider": "hunter", "firstName": "John", "lastName": "Doe", "domain": "example.com" }
  */
-router.patch('/leads/:id/status', async (req, res) => {
-  try {
-    const id =
-      String(req.params.id || '').trim();
-
-    if (!id) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'INVALID_LEAD_ID',
-          message: 'Lead id is required.',
-        },
-      });
-    }
-
+router.post(
+  ['/leads/find-email', '/leads/email-finder'],
+  requireProvider,
+  asyncHandler(async (req, res) => {
     const body = req.body || {};
+    const input = {
+      firstName: readString(body, 'firstName', 'first_name'),
+      lastName: readString(body, 'lastName', 'last_name'),
+      domain: readString(body, 'domain', 'companyWebsite', 'company_website'),
+    };
 
-    const status =
-      typeof body.status === 'string'
-        ? body.status.trim()
-        : '';
-
-    if (!status) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'INVALID_STATUS',
-          message: 'Lead status is required.',
-        },
-      });
+    if (!input.firstName || !input.lastName || !DOMAIN_PATTERN.test(input.domain)) {
+      throw createError('Provide firstName, lastName and a valid domain.', 'INVALID_EMAIL_FINDER_INPUT', 400);
     }
 
-    const updated =
-      await leadRepository.updateStatus(
-        id,
-        status
-      );
+    sendProviderResult(res, req.provider, await leadService.findEmail(req.provider, input));
+  })
+);
 
-    if (!updated) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          code: 'LEAD_NOT_FOUND',
-          message: 'Lead not found.',
-        },
-      });
+/**
+ * POST /api/leads/verify-email (alias: /api/leads/email-verify)
+ *
+ * { "provider": "hunter", "email": "john@example.com" }
+ */
+router.post(
+  ['/leads/verify-email', '/leads/email-verify'],
+  requireProvider,
+  asyncHandler(async (req, res) => {
+    const email = readString(req.body || {}, 'email');
+
+    if (!EMAIL_PATTERN.test(email)) {
+      throw createError('Provide a valid email address.', 'INVALID_EMAIL', 400);
     }
 
-    return res.json({
-      success: true,
-      data: updated,
-      lead: updated,
-    });
-  } catch (error) {
-    return handleError(
-      res,
-      error,
-      'Failed to update lead status.'
+    sendProviderResult(res, req.provider, await leadService.verifyEmail(req.provider, { email }));
+  })
+);
+
+/**
+ * POST /api/companies/search — search companies through the selected provider.
+ */
+router.post(
+  '/companies/search',
+  requireProvider,
+  asyncHandler(async (req, res) => {
+    const body = req.body || {};
+    const result = await leadService.searchCompanies(req.provider, readFilters(body), readPage(body));
+    sendProviderResult(res, req.provider, result);
+  })
+);
+
+/**
+ * GET /api/providers/:provider/account — provider account information.
+ * Never exposes API keys.
+ */
+router.get(
+  '/providers/:provider/account',
+  requireProvider,
+  asyncHandler(async (req, res) => {
+    const provider = providerFactory.getProvider(req.provider);
+
+    const data =
+      provider.isConfigured() && provider.supports('getAccountInformation')
+        ? await provider.getAccountInformation()
+        : { configured: provider.isConfigured() };
+
+    res.json({ success: true, provider: req.provider, data });
+  })
+);
+
+/**
+ * PATCH /api/leads/:id/status — update the pipeline status of a stored lead.
+ */
+router.patch('/leads/:id/status', (req, res) => {
+  const id = String(req.params.id || '').trim();
+  const status = readString(req.body || {}, 'status').toUpperCase();
+
+  if (!leadRepository.LEAD_STATUSES.includes(status)) {
+    throw createError(
+      `Lead status must be one of: ${leadRepository.LEAD_STATUSES.join(', ')}.`,
+      'INVALID_STATUS',
+      400
     );
   }
+
+  const updated = leadRepository.updateStatus(id, status);
+  if (!updated) {
+    throw createError('Lead not found.', 'LEAD_NOT_FOUND', 404);
+  }
+
+  res.json({ success: true, data: updated, lead: updated });
 });
 
 module.exports = router;
