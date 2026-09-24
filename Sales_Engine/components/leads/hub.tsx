@@ -13,7 +13,7 @@ import { PipelineLead } from "@/lib/types";
 
 /**
  * Leads Hub — fully dynamic. Leads are loaded from the backend
- * (GET /api/leads → Prisma pipeline DB); CSV import goes through
+ * (GET /api/leads → leads spreadsheet); CSV import goes through
  * POST /api/leads (server-side parsing + dedup). No hardcoded rows.
  */
 export function LeadsHub() {
@@ -51,7 +51,7 @@ export function LeadsHub() {
   const filtered = useMemo(() => {
     const q = filters.search.toLowerCase().trim();
     return leads.filter((l) => {
-      if (q && !`${l.name} ${l.company ?? ""} ${l.email} ${l.website}`.toLowerCase().includes(q)) return false;
+      if (q && !`${l.name} ${l.company ?? ""} ${l.email ?? ""} ${l.website}`.toLowerCase().includes(q)) return false;
       if (filters.state !== "All" && l.status !== filters.state) return false;
       if (filters.location && !(l.location ?? "").toLowerCase().includes(filters.location.toLowerCase())) return false;
       if (filters.source !== "All" && (l.source ?? "") !== filters.source) return false;

@@ -1,40 +1,40 @@
 /**
- * Mapping from a provider/CSV lead into the optional columns of the Prisma
- * Lead model. Shared by discovery, enrichment and CSV import so a lead is
+ * Mapping from a provider/CSV lead into the optional columns of a pipeline
+ * Lead (lib/leadModel). Shared by discovery, enrichment and CSV import so a lead is
  * stored the same way no matter how it entered the pipeline.
  */
 
 /** Lead fields as returned by the provider backend (normalized camelCase). */
 export interface ProviderLead {
-  id?: string;
-  firstName?: string;
-  lastName?: string;
-  fullName?: string;
-  jobTitle?: string;
-  companyName?: string;
-  companyWebsite?: string;
-  email?: string;
-  emailStatus?: string;
-  phone?: string;
-  linkedinUrl?: string;
-  location?: string;
-  industry?: string;
+  id?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  fullName?: string | null;
+  jobTitle?: string | null;
+  companyName?: string | null;
+  companyWebsite?: string | null;
+  email?: string | null;
+  emailStatus?: string | null;
+  phone?: string | null;
+  linkedinUrl?: string | null;
+  location?: string | null;
+  industry?: string | null;
   latitude?: number | string | null;
   longitude?: number | string | null;
-  source?: string;
-  hotelName?: string;
-  brandType?: string;
-  propertySizeCategory?: string;
-  city?: string;
-  state?: string;
-  exactAddress?: string;
-  googleMapsLink?: string;
-  googleBusinessLink?: string;
-  tripAdvisorLink?: string;
-  bookingComLink?: string;
-  makeMyTripLink?: string;
-  instagramLink?: string;
-  facebookLink?: string;
+  source?: string | null;
+  hotelName?: string | null;
+  brandType?: string | null;
+  propertySizeCategory?: string | null;
+  city?: string | null;
+  state?: string | null;
+  exactAddress?: string | null;
+  googleMapsLink?: string | null;
+  googleBusinessLink?: string | null;
+  tripAdvisorLink?: string | null;
+  bookingComLink?: string | null;
+  makeMyTripLink?: string | null;
+  instagramLink?: string | null;
+  facebookLink?: string | null;
   googleRating?: number | string | null;
   totalReviewsCount?: number | string | null;
   sentimentScore?: number | string | null;
@@ -99,9 +99,4 @@ export function toLeadDetails(item: ProviderLead) {
     latitude: toNumber(item.latitude),
     longitude: toNumber(item.longitude),
   };
-}
-
-/** Prisma unique-constraint violation (duplicate email + website). */
-export function isUniqueViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2002";
 }

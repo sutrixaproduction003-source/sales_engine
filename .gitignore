@@ -25,3 +25,6 @@ Thumbs.db
 *_out*.txt
 *-out.txt
 backend_run*.txt
+
+# Local lead data (Excel store)
+Sales_Engine/data/

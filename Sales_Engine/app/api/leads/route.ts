@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { DuplicateLeadError, listLeads, transaction } from "@/lib/leadDb";
 import Papa from "papaparse";
-import { isUniqueViolation, toLeadDetails } from "@/lib/leadRecord";
+import { toLeadDetails } from "@/lib/leadRecord";
 
 export const runtime = "nodejs";
+// Reads the leads spreadsheet on every request; never prerender.
+export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 interface CsvRow {
@@ -40,9 +42,7 @@ interface CsvRow {
 
 export async function GET() {
   try {
-    const leads = await prisma.lead.findMany({
-      orderBy: { createdAt: "desc" },
-    });
+    const leads = await listLeads({ newestFirst: true });
     return NextResponse.json({ leads });
   } catch (err) {
     return NextResponse.json(
@@ -77,49 +77,52 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No valid rows found" }, { status: 400 });
     }
 
-    let created = 0;
-    for (const row of rows) {
-      const data = {
-        ...toLeadDetails({
-          hotelName: row.hotel_name || row.company,
-          brandType: row.brand_type,
-          propertySizeCategory: row.property_size_category,
-          companyName: row.company,
-          jobTitle: row.job_title,
-          phone: row.phone,
-          linkedinUrl: row.linkedin_url,
-          location: row.location,
-          city: row.city,
-          state: row.state,
-          exactAddress: row.exact_address,
-          googleMapsLink: row.google_maps_link,
-          industry: row.industry,
-          googleBusinessLink: row.google_business_link,
-          tripAdvisorLink: row.tripadvisor_link,
-          bookingComLink: row.booking_com_link,
-          makeMyTripLink: row.makemytrip_link,
-          instagramLink: row.instagram_link,
-          facebookLink: row.facebook_link,
-          googleRating: row.google_rating,
-          totalReviewsCount: row.total_reviews_count,
-          sentimentScore: row.sentiment_score,
-          latitude: row.latitude,
-          longitude: row.longitude,
-        }),
-        name: row.name?.trim() ?? "",
-        website: row.website?.trim() ?? "",
-        email: row.email?.trim() ?? "",
-        project: row.project?.trim() || null,
-        source: row.source?.trim() || "CSV Import",
-      };
-      try {
-        await prisma.lead.create({ data });
-        created++;
-      } catch (error) {
-        // Duplicate email+website rows are skipped; anything else is logged.
-        if (!isUniqueViolation(error)) console.error("Failed to import lead row:", error);
+    const created = await transaction((tx) => {
+      let count = 0;
+      for (const row of rows) {
+        const data = {
+          ...toLeadDetails({
+            hotelName: row.hotel_name || row.company,
+            brandType: row.brand_type,
+            propertySizeCategory: row.property_size_category,
+            companyName: row.company,
+            jobTitle: row.job_title,
+            phone: row.phone,
+            linkedinUrl: row.linkedin_url,
+            location: row.location,
+            city: row.city,
+            state: row.state,
+            exactAddress: row.exact_address,
+            googleMapsLink: row.google_maps_link,
+            industry: row.industry,
+            googleBusinessLink: row.google_business_link,
+            tripAdvisorLink: row.tripadvisor_link,
+            bookingComLink: row.booking_com_link,
+            makeMyTripLink: row.makemytrip_link,
+            instagramLink: row.instagram_link,
+            facebookLink: row.facebook_link,
+            googleRating: row.google_rating,
+            totalReviewsCount: row.total_reviews_count,
+            sentimentScore: row.sentiment_score,
+            latitude: row.latitude,
+            longitude: row.longitude,
+          }),
+          name: row.name?.trim() ?? "",
+          website: row.website?.trim() ?? "",
+          email: row.email?.trim() ?? "",
+          project: row.project?.trim() || null,
+          source: row.source?.trim() || "CSV Import",
+        };
+        try {
+          tx.create(data);
+          count++;
+        } catch (error) {
+          // Duplicate email + website rows are skipped.
+          if (!(error instanceof DuplicateLeadError)) throw error;
+        }
       }
-    }
+      return count;
+    });
 
     return NextResponse.json({ created, skipped: rows.length - created });
   } catch (err) {

@@ -12,7 +12,7 @@ export interface LeadsStoreState {
 
 /**
  * API-backed lead store (replaces the former mock store).
- * Data comes from the backend (GET /api/leads → Prisma pipeline DB);
+ * Data comes from the backend (GET /api/leads → leads spreadsheet);
  * UI components consume it through useLeadsStore()/refreshLeads().
  */
 let state: LeadsStoreState = { leads: [], loading: false, error: null };

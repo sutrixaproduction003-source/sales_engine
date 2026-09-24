@@ -1,4 +1,4 @@
-import type { Lead } from "@prisma/client";
+import type { Lead } from "@/lib/leadModel";
 
 const HUBSPOT_BASE = "https://api.hubapi.com";
 
@@ -34,7 +34,7 @@ async function hubspotRequest<T>(path: string, init: RequestInit = {}): Promise<
 
 function contactProperties(lead: Lead): Record<string, string> {
   return {
-    email: lead.email,
+    email: lead.email ?? "",
     firstname: lead.name.split(/\s+/)[0] || lead.name,
     lastname: lead.name.split(/\s+/).slice(1).join(" "),
     phone: lead.phone ?? "",
@@ -129,6 +129,7 @@ async function ensureCustomProperties() {
 }
 
 export async function syncLeadToHubSpot(lead: Lead) {
+  if (!lead.email) throw new Error("Lead has no email address; HubSpot contacts are keyed by email.");
   await ensureCustomProperties();
   const contact = await upsertObject("contacts", await findByEmail(lead.email), contactProperties(lead));
   const domain = lead.website.replace(/^https?:\/\//, "").split("/")[0];

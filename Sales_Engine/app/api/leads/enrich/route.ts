@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { transaction } from "@/lib/leadDb";
 import { postToBackend } from "@/lib/providerBackend";
 import { NUMERIC_LEAD_FIELDS, cleanString, toLeadDetails, type ProviderLead } from "@/lib/leadRecord";
 
@@ -48,18 +48,21 @@ async function saveEnrichedLead(
         if (update[field] === null) delete update[field];
     }
 
-    await prisma.lead.upsert({
-        where: { email_website: { email: identity.email, website: identity.website } },
-        update,
-        create: {
-            ...details,
-            name,
-            source,
-            email: identity.email,
-            website: identity.website,
-            project: project || null,
-            status: "PENDING",
-        },
+    await transaction((tx) => {
+        const existing = tx.find((l) => l.email === identity.email && l.website === identity.website);
+        if (existing) {
+            tx.update(existing.id, update);
+        } else {
+            tx.create({
+                ...details,
+                name,
+                source,
+                email: identity.email,
+                website: identity.website,
+                project: project || null,
+                status: "PENDING",
+            });
+        }
     });
 }
 
@@ -152,7 +155,7 @@ export async function POST(request: NextRequest) {
                     provider
                 );
             } catch (dbErr) {
-                console.error("Failed to save enriched lead to Prisma database:", dbErr);
+                console.error("Failed to save enriched lead to the leads spreadsheet:", dbErr);
             }
         }
 

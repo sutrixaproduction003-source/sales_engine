@@ -8,10 +8,9 @@ import { fetchLeads } from "@/lib/leadService";
 import { PipelineLead } from "@/lib/types";
 
 /**
- * Personalization — consumes REAL leads from the backend. Leads with status
- * SCRAPED are ready for the AI step; running the queue calls the EXISTING
- * backend route POST /api/personalize (OmniRoute). No AI provider logic or
- * keys live in the frontend.
+ * Personalization — drafts personalized emails for leads that have an email
+ * but no draft yet (POST /api/personalize, in batches). Drafts go to the
+ * Review Queue; nothing is sent from here.
  */
 export default function PersonalizationPage() {
   const [leads, setLeads] = useState<PipelineLead[] | null>(null);
@@ -32,22 +31,31 @@ export default function PersonalizationPage() {
     load();
   }, [load]);
 
-  const ready = (leads ?? []).filter((l) => l.status === "SCRAPED");
+  const ready = (leads ?? []).filter((l) => l.email && (l.status === "PENDING" || l.status === "SCRAPED"));
   const done = (leads ?? []).filter((l) => l.status === "PERSONALIZED");
 
   const runPersonalization = async () => {
     setRunning(true);
     setResult(null);
     try {
-      const res = await apiCall<{ personalized: number; pending: number; errors: string[] }>(
-        "/api/personalize",
-        { method: "POST" }
-      );
-      const errCount = res.errors?.length ?? 0;
+      let drafted = 0;
+      let attempted = 0;
+      const errors: string[] = [];
+      // The route drafts a small batch per call; keep going until the queue is empty.
+      for (;;) {
+        const res = await apiCall<{ personalized: number; pending: number; remaining: number; errors: string[] }>(
+          "/api/personalize",
+          { method: "POST" }
+        );
+        drafted += res.personalized;
+        attempted += res.pending;
+        errors.push(...(res.errors ?? []));
+        if (res.remaining === 0 || res.pending === 0 || res.personalized === 0) break;
+      }
       setResult({
-        ok: res.personalized > 0,
-        text: `Personalized ${res.personalized} of ${res.pending} queued leads${
-          errCount ? ` · ${errCount} failed — first error: ${res.errors[0]}` : ""
+        ok: drafted > 0,
+        text: `Drafted ${drafted} of ${attempted} emails — review them in the Review Queue${
+          errors.length ? ` · ${errors.length} failed — first error: ${errors[0]}` : ""
         }.`,
       });
       load();
@@ -62,7 +70,7 @@ export default function PersonalizationPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-white">Personalization</h1>
-        <p className="text-sm text-slate-400">Generate high-signal icebreakers for scraped leads.</p>
+        <p className="text-sm text-slate-400">Draft a personalized email for every lead with an email address.</p>
       </div>
 
       <Card className="space-y-4">
@@ -71,9 +79,9 @@ export default function PersonalizationPage() {
             <Sparkles className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-lg font-medium text-white">AI personalization queue</p>
+            <p className="text-lg font-medium text-white">Email drafting queue</p>
             <p className="text-sm text-slate-400">
-              Runs on the backend (OmniRoute) over leads with collected website context.
+              Reads each lead&apos;s website and drafts an email. New map leads are drafted automatically.
             </p>
           </div>
         </div>
@@ -94,7 +102,7 @@ export default function PersonalizationPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
               <p className="text-2xl font-semibold text-sky-400">{ready.length}</p>
-              <p className="text-xs text-slate-400">Leads ready for personalization (scraped)</p>
+              <p className="text-xs text-slate-400">Leads with an email and no draft yet</p>
               {ready.length > 0 && (
                 <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto">
                   {ready.map((l) => (
@@ -107,7 +115,7 @@ export default function PersonalizationPage() {
             </div>
             <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
               <p className="text-2xl font-semibold text-emerald-400">{done.length}</p>
-              <p className="text-xs text-slate-400">Personalized — awaiting review</p>
+              <p className="text-xs text-slate-400">Drafted — waiting in the Review Queue</p>
               {done.length > 0 && (
                 <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto">
                   {done.slice(0, 10).map((l) => (
@@ -129,7 +137,7 @@ export default function PersonalizationPage() {
               </>
             ) : (
               <>
-                <PlayCircle className="h-4 w-4" /> Run Personalization Queue
+                <PlayCircle className="h-4 w-4" /> Draft emails
               </>
             )}
           </Button>
@@ -143,7 +151,7 @@ export default function PersonalizationPage() {
 
         <div className="flex items-center gap-2 text-sm text-slate-400">
           <Wand2 className="h-4 w-4 text-violet-400" />
-          Personalization model: configured on the backend (GROQ_API_KEY in Settings)
+          Uses DeepSeek or Groq when a key is set in Settings, otherwise a template with your sender pitch.
         </div>
       </Card>
     </div>

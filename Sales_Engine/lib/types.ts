@@ -1,13 +1,13 @@
 /**
  * Shared frontend types — adapted to the ACTUAL backend contracts:
  *
- * - PipelineLead → Prisma `Lead` rows from GET /api/leads
+ * - PipelineLead → `Lead` rows (lib/leadModel) from GET /api/leads
  *   (Sales Engine pipeline DB)
  *
  * - DiscoveryLead → normalized provider leads returned by
- *   POST /api/leads/discover
+ *   POST /api/search (Discovery page)
  *
- *   The backend normalizes Prospeo/Hunter/Apollo payloads.
+ *   The backend normalizes Apollo payloads.
  *
  * - StatsResponse → GET /api/stats pipeline counters
  *
@@ -19,7 +19,8 @@ export type PipelineStatus =
   | "PENDING"
   | "SCRAPED"
   | "PERSONALIZED"
-  | "SYNCED";
+  | "SYNCED"
+  | "REJECTED";
 
 export type BusinessType =
   | "HOTEL"
@@ -100,11 +101,24 @@ export interface PipelineLead {
 
   website: string;
 
-  email: string;
+  /** Null for scraped businesses without a public email. */
+  email: string | null;
 
   scrapedContext: string | null;
 
   icebreaker: string | null;
+
+  emailSubject?: string | null;
+
+  emailBody?: string | null;
+
+  draftMethod?: string | null;
+
+  sentAt?: string | null;
+
+  sentMessageId?: string | null;
+
+  sendError?: string | null;
 
   status: PipelineStatus;
 
@@ -363,7 +377,7 @@ export interface DiscoveryLead {
 
   /**
    * Provider/source name as returned by the backend
-   * (e.g. "prospeo", "hunter", "apollo").
+   * (e.g. "apollo").
    */
   source: string;
 
@@ -484,20 +498,6 @@ export interface DiscoveryLead {
   aiEvaluatedAt?: string | null;
 }
 
-export interface DiscoverResponse {
-  total: number;
-
-  saved: number;
-
-  duplicates: number;
-
-  /**
-   * Leads whose missing coordinates were resolved by geocoding.
-   */
-  geocoded?: number;
-
-  leads: DiscoveryLead[];
-}
 
 export interface StatsResponse {
   total: number;
@@ -507,6 +507,8 @@ export interface StatsResponse {
   scraped: number;
 
   personalized: number;
+
+  rejected?: number;
 
   synced: number;
 }

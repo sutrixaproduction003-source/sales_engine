@@ -5,6 +5,8 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const leadRoutes = require('./routes/leadRoutes');
 const scraperRoutes = require('./routes/scraperRoutes');
+const placesRoutes = require('./routes/placesRoutes');
+const peopleRoutes = require('./routes/peopleRoutes');
 const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
 const logger = require('./utils/logger');
@@ -47,6 +49,8 @@ app.get('/', (req, res) => {
 app.use('/api', limiter);
 app.use('/api', leadRoutes);
 app.use('/api', scraperRoutes);
+app.use('/api', placesRoutes);
+app.use('/api', peopleRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
