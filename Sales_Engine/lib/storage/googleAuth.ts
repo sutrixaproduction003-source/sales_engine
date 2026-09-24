@@ -17,11 +17,16 @@ export interface ServiceAccount {
 
 /**
  * The service account key from Settings (stored base64-encoded so the JSON
- * survives .env quoting) or GOOGLE_SERVICE_ACCOUNT_JSON set by the host.
+ * survives .env quoting), or set by the host as GOOGLE_SERVICE_ACCOUNT (the
+ * key file's JSON as-is, or base64) or GOOGLE_SERVICE_ACCOUNT_JSON.
  */
 export function getServiceAccount(): ServiceAccount | null {
-  const encoded = getSetting("GOOGLE_SERVICE_ACCOUNT");
-  const raw = encoded ? Buffer.from(encoded, "base64").toString("utf8") : process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "";
+  const setting = getSetting("GOOGLE_SERVICE_ACCOUNT").trim();
+  const raw = setting
+    ? setting.startsWith("{")
+      ? setting
+      : Buffer.from(setting, "base64").toString("utf8")
+    : process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "";
   if (!raw.trim()) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<ServiceAccount>;

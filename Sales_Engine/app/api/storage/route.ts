@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { activeStore, copyLeads, countLeads, LeadStoreError, type LeadStoreId } from "@/lib/leadDb";
+import { activeStore, copyLeads, countLeads, LeadStoreError, storageStatus, type LeadStoreId } from "@/lib/leadDb";
 import { getServiceAccount } from "@/lib/storage/googleAuth";
 import { sheetUrl } from "@/lib/storage/sheetsStore";
 
@@ -13,6 +13,7 @@ const isStore = (value: unknown): value is LeadStoreId => value === "excel" || v
 export async function GET() {
   return NextResponse.json({
     active: activeStore().id,
+    ...storageStatus(),
     sheetUrl: sheetUrl(),
     serviceAccountEmail: getServiceAccount()?.client_email ?? null,
   });

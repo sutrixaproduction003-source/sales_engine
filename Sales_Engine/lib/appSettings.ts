@@ -84,9 +84,14 @@ export function getSettings(): Record<SettingKey, string> {
  * Update settings in .env.local. Empty values are ignored (a blank field in
  * the form means "keep the current value"); other lines are preserved.
  */
+/** Deployed on Vercel: there is no lasting .env.local to save to. */
+export const SETTINGS_READ_ONLY_MESSAGE =
+  "On Vercel, settings can't be saved here. Add them in the Vercel project's Settings → Environment Variables, then redeploy.";
+
 export function saveSettings(updates: Partial<Record<SettingKey, string>>): void {
   const changes = Object.entries(updates).filter(([, value]) => typeof value === "string" && value.trim());
   if (changes.length === 0) return;
+  if (process.env.VERCEL === "1") throw new Error(SETTINGS_READ_ONLY_MESSAGE);
 
   const raw = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, "utf8") : "";
   const lines = raw.split(/\r?\n/).filter((line, i, all) => line || i < all.length - 1);
