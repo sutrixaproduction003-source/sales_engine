@@ -9,7 +9,9 @@ type Store = "excel" | "sheets";
 type Msg = { ok: boolean; text: string } | null;
 
 interface StorageInfo {
-  active: Store;
+  active: Store | "none";
+  connected?: boolean;
+  message?: string | null;
   sheetUrl: string | null;
   serviceAccountEmail: string | null;
 }
@@ -119,6 +121,10 @@ export function StorageSettings() {
         </div>
       </div>
 
+      {info && info.connected === false && info.message && (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">{info.message}</p>
+      )}
+
       <div className="flex flex-col gap-2 sm:flex-row">
         <Choice
           active={info?.active === "excel"}
@@ -216,7 +222,11 @@ export function StorageSettings() {
 
       <div className="flex items-center gap-2 text-sm">
         <span className="text-slate-500">Active:</span>
-        <Badge color={info?.active === "sheets" ? "sky" : "emerald"}>{info?.active === "sheets" ? "Google Sheets" : "Excel file"}</Badge>
+        {info?.active === "none" ? (
+          <Badge color="amber">Not connected</Badge>
+        ) : (
+          <Badge color={info?.active === "sheets" ? "sky" : "emerald"}>{info?.active === "sheets" ? "Google Sheets" : "Excel file"}</Badge>
+        )}
         {msg && <span className={msg.ok ? "text-emerald-400" : "text-rose-400"}>{msg.text}</span>}
       </div>
     </Card>

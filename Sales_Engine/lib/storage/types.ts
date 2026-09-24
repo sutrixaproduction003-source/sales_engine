@@ -2,7 +2,7 @@ import type { Lead } from "@/lib/leadModel";
 
 /** A place leads are kept: the whole table is read and written at once. */
 export interface LeadStoreDriver {
-  id: "excel" | "sheets";
+  id: "excel" | "sheets" | "none";
   label: string;
   read(): Promise<Lead[]>;
   write(leads: Lead[]): Promise<void>;

@@ -32,6 +32,15 @@ interface Draft {
   body: string;
 }
 
+/** "https://www.x.com/a?utm_source=…" → "x.com": long tracking links don't fit on a phone. */
+function siteLabel(website: string) {
+  try {
+    return new URL(/^https?:/i.test(website) ? website : `https://${website}`).hostname.replace(/^www\./, "");
+  } catch {
+    return website.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
+  }
+}
+
 function ReviewCard({
   lead,
   canSend,
@@ -106,22 +115,23 @@ function ReviewCard({
   const ready = draft.subject.trim() && draft.body.trim();
 
   return (
-    <Card className="space-y-4">
+    <Card className="min-w-0 space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 max-w-full">
           <p className="font-medium text-white">{lead.company || lead.name}</p>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
-            <span className="flex items-center gap-1">
-              <Mail className="h-3.5 w-3.5 text-slate-500" /> {lead.email}
+            <span className="flex min-w-0 max-w-full items-center gap-1">
+              <Mail className="h-3.5 w-3.5 shrink-0 text-slate-500" /> <span className="truncate">{lead.email}</span>
             </span>
             {lead.website && (
               <a
                 href={/^https?:/.test(lead.website) ? lead.website : `https://${lead.website}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1 hover:text-sky-300"
+                className="flex min-w-0 max-w-full items-center gap-1 hover:text-sky-300"
+                title={lead.website}
               >
-                <Globe className="h-3.5 w-3.5 text-slate-500" /> {lead.website.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}
+                <Globe className="h-3.5 w-3.5 shrink-0 text-slate-500" /> <span className="truncate">{siteLabel(lead.website)}</span>
               </a>
             )}
             {typeof lead.googleRating === "number" && (
@@ -284,7 +294,7 @@ export function ReviewQueuePageContent() {
           </p>
         </Card>
       ) : (
-        <div className={cn("grid gap-4", leads.length > 1 && "xl:grid-cols-2")}>
+        <div className={cn("grid grid-cols-1 gap-4", leads.length > 1 && "xl:grid-cols-2")}>
           {leads.map((lead) => (
             <ReviewCard key={lead.id} lead={lead} canSend={Boolean(mail?.configured)} onDone={onDone} />
           ))}

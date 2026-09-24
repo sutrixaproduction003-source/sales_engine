@@ -12,6 +12,7 @@ import { type Lead, type LeadInput, type LeadStatus, type LeadUpdate } from "@/l
 import { toLead } from "@/lib/storage/leadColumns";
 import { excelStore } from "@/lib/storage/excelStore";
 import { sheetsStore } from "@/lib/storage/sheetsStore";
+import { getServiceAccount } from "@/lib/storage/googleAuth";
 import { LeadStoreError, type LeadStoreDriver } from "@/lib/storage/types";
 
 export { LeadStoreError };
@@ -25,13 +26,55 @@ export class DuplicateLeadError extends Error {
 
 export type LeadStoreId = LeadStoreDriver["id"];
 
-/** The store currently selected in Settings. */
+/** Hosts without a lasting disk (Vercel): an Excel file there would be lost. */
+const ephemeralDisk = () => process.env.VERCEL === "1";
+
+/** Google Sheets has a sheet and a service account key. */
+export const sheetsConfigured = () => Boolean(getSetting("GOOGLE_SHEET_ID").trim()) && Boolean(getServiceAccount());
+
+export const STORAGE_NOT_CONNECTED =
+  "Lead storage isn't connected on this deployment, so leads can't be saved yet. Add GOOGLE_SHEET_ID and " +
+  "GOOGLE_SERVICE_ACCOUNT in the Vercel project's environment variables, then redeploy.";
+
+/**
+ * Deployed without Google Sheets: the app runs, lists no leads, and every
+ * save explains what to set up — instead of writing an Excel file that the
+ * host would throw away.
+ */
+const notConnectedStore: LeadStoreDriver = {
+  id: "none",
+  label: "Not connected",
+  read: async () => [],
+  write: async () => {
+    throw new LeadStoreError(STORAGE_NOT_CONNECTED, "config");
+  },
+  version: async () => "none",
+};
+
+/**
+ * The store in use: the one chosen in Settings (LEAD_STORE); on hosts without
+ * a lasting disk, Google Sheets as soon as it is configured, else "not
+ * connected".
+ */
 export function activeStore(): LeadStoreDriver {
-  return getSetting("LEAD_STORE") === "sheets" ? sheetsStore : excelStore;
+  const chosen = getSetting("LEAD_STORE");
+  if (!ephemeralDisk()) return chosen === "sheets" ? sheetsStore : excelStore;
+  return chosen === "sheets" || sheetsConfigured() ? sheetsStore : notConnectedStore;
 }
 
 export function storeById(id: LeadStoreId): LeadStoreDriver {
+  if (id === "none") return notConnectedStore;
   return id === "sheets" ? sheetsStore : excelStore;
+}
+
+/** For the UI: is there somewhere to save leads? */
+export function storageStatus(): { connected: boolean; message: string | null } {
+  const store = activeStore();
+  if (store.id === "none") return { connected: false, message: STORAGE_NOT_CONNECTED };
+  if (store.id === "sheets" && !sheetsConfigured()) {
+    return { connected: false, message: "Google Sheets is selected but not set up: add GOOGLE_SHEET_ID and GOOGLE_SERVICE_ACCOUNT." };
+  }
+  return { connected: true, message: null };
 }
 
 // ---------- in-process cache + write queue ----------

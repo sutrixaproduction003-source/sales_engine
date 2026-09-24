@@ -53,7 +53,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-[80vh] items-center justify-center">
+    <div className="flex min-h-[calc(100vh-2rem)] items-center justify-center">
       <Suspense>
         <LoginForm />
       </Suspense>
