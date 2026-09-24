@@ -250,18 +250,22 @@ class ApolloProvider extends BaseProvider {
     };
 
     const query = filters.query || filters.q || filters.keywords || filters.q_keywords;
-    if (query) params.q = String(query);
+    if (query) params.q_keywords = String(query);
 
     const listParams = {
       person_titles: ['jobTitles', 'jobTitle', 'job_title'],
       person_locations: ['locations', 'location'],
       organization_names: ['companyNames', 'companyName', 'company_name'],
-      organization_domains: ['domains', 'domain', 'companyWebsite', 'company_website'],
+      person_seniorities: ['seniorities', 'seniority'],
     };
     for (const [param, keys] of Object.entries(listParams)) {
       const list = pickList(filters, keys);
       if (list.length) params[param] = list;
     }
+
+    // People at specific companies, by website domain ("https://www.x.com/a" → "x.com").
+    const domains = [...new Set(pickList(filters, ['domains', 'domain', 'companyWebsite', 'company_website']).map(extractDomain).filter(Boolean))];
+    if (domains.length) params.q_organization_domains_list = domains;
 
     if (params.person_titles) params.include_similar_titles = true;
 

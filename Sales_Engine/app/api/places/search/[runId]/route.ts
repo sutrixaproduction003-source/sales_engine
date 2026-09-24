@@ -28,19 +28,29 @@ function savePlaces(places: ScrapedPlace[], project: string | null) {
   return transaction((tx) => {
     let saved = 0;
     let updated = 0;
-    const stored = new Map<string, { id: number; status: ScrapedPlace["status"] }>();
+    const stored = new Map<string, { id: number; status: ScrapedPlace["status"]; contact: Partial<ScrapedPlace> }>();
 
     for (const place of places) {
       const data = toLeadData(place, project);
       const existing = place.placeId ? tx.find((l) => l.googlePlaceId === place.placeId) : undefined;
       try {
+        // A decision-maker found with Apollo stays the lead's contact.
+        const contact = existing?.apolloId
+          ? { name: existing.name, jobTitle: existing.jobTitle, email: existing.email, phone: existing.phone, companyPhone: data.phone || existing.companyPhone }
+          : {};
         const row = existing
-          ? tx.update(existing.id, { ...data, project: existing.project ?? project, email: data.email ?? existing.email })
+          ? tx.update(existing.id, { ...data, project: existing.project ?? project, email: data.email ?? existing.email, ...contact })
           : tx.create(data);
         if (!row) continue;
         if (existing) updated++;
         else saved++;
-        stored.set(place.id, { id: row.id, status: row.status });
+        stored.set(place.id, {
+          id: row.id,
+          status: row.status,
+          contact: row.apolloId
+            ? { contactName: row.name, contactTitle: row.jobTitle, email: row.email ?? "", phone: row.phone ?? "", phoneStatus: row.phoneStatus }
+            : {},
+        });
       } catch (error) {
         // Same email + website already stored under another place: keep going.
         if (!(error instanceof DuplicateLeadError)) throw error;
@@ -84,7 +94,7 @@ export async function GET(request: Request, { params }: { params: { runId: strin
     run.updated = updated;
     run.places = run.places.map((place) => {
       const row = stored.get(place.id);
-      return row ? { ...place, dbId: row.id, status: row.status } : place;
+      return row ? { ...place, ...row.contact, dbId: row.id, status: row.status } : place;
     });
   } catch (error) {
     console.error("Failed to save scraped places:", error);

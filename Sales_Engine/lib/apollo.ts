@@ -115,6 +115,90 @@ export async function revealLead(id: number, { phone = false } = {}) {
   };
 }
 
+/** Senior people, when nobody at the business has one of the project's roles. */
+const SENIOR = ["owner", "founder", "c_suite", "partner", "vp", "head", "director"];
+
+/** Apollo people at a business's website domain (free search). */
+async function peopleAtDomain(domain: string, body: Record<string, unknown>) {
+  const res = await callBackend<{ people: ApolloPerson[] }>(() =>
+    postToBackend("/api/apollo/search", { domain, perPage: 10, ...body })
+  );
+  return res instanceof NextResponse ? res : res.people;
+}
+
+export interface BusinessContact {
+  found: boolean;
+  /** Why nobody was found: "no_website" | "no_people". */
+  reason?: string;
+  name?: string;
+  jobTitle?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  phoneStatus?: PhoneStatus | null;
+}
+
+/**
+ * Fallback for scraped businesses without contact details: find the best
+ * decision-maker at the business on Apollo (one of the project's roles,
+ * else the most senior person), reveal their work email (1 credit) and
+ * optionally mobile (up to 8), and make the lead that person at the business.
+ * The business's own phone is kept in companyPhone.
+ */
+export async function findBusinessContact(
+  id: number,
+  { phone = false, roles = [] as string[] } = {}
+): Promise<BusinessContact | NextResponse> {
+  const lead = await getLead(id);
+  if (!lead) return NextResponse.json({ error: "Lead not found." }, { status: 404 });
+  if (!lead.website) return { found: false, reason: "no_website" };
+
+  let people = await peopleAtDomain(lead.website, { titles: roles });
+  if (people instanceof NextResponse) return people;
+  if (!people.length) {
+    people = await peopleAtDomain(lead.website, { seniorities: SENIOR });
+    if (people instanceof NextResponse) return people;
+  }
+  // Prefer someone Apollo has an email for (and a phone, when asked).
+  const best =
+    people.find((p) => p.has_email && (!phone || p.has_phone)) ?? people.find((p) => p.has_email) ?? people[0];
+  if (!best?.id) return { found: false, reason: "no_people" };
+
+  const result = await revealPerson({ id: best.id }, { phone });
+  if (result instanceof NextResponse) return result;
+  const person = result.lead;
+  if (!result.matched || !person?.fullName) return { found: false, reason: "no_people" };
+
+  const patch: LeadUpdate = {
+    name: person.fullName,
+    jobTitle: person.jobTitle || best.jobTitle || null,
+    company: lead.company || lead.hotelName || lead.name,
+    // The person's own address beats the business's general inbox.
+    email: person.email || lead.email,
+    linkedinUrl: person.linkedinUrl || lead.linkedinUrl,
+    apolloId: person.id || best.id,
+    companyPhone: lead.companyPhone || lead.phone,
+  };
+  if (person.phone) {
+    patch.phone = person.phone;
+    patch.phoneStatus = "found";
+  } else if (phone && result.phoneRequestId) {
+    patch.phoneStatus = "pending";
+    patch.phoneRequestId = result.phoneRequestId;
+  } else if (phone) {
+    patch.phoneStatus = "none";
+  }
+
+  const updated = await updateLead(id, patch);
+  return {
+    found: true,
+    name: updated?.name,
+    jobTitle: updated?.jobTitle,
+    email: updated?.email,
+    phone: updated?.phone,
+    phoneStatus: (updated?.phoneStatus as PhoneStatus | null) ?? null,
+  };
+}
+
 /**
  * Collect pending mobile numbers for these leads and save them.
  * → { [leadId]: { phoneStatus, phone } } or a NextResponse error.

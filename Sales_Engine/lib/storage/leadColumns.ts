@@ -18,6 +18,7 @@ export const COLUMNS: { key: keyof Lead; kind: Kind; width: number }[] = [
   { key: "email", kind: "string", width: 30 },
   { key: "phone", kind: "string", width: 18 },
   { key: "phoneStatus", kind: "string", width: 10 },
+  { key: "companyPhone", kind: "string", width: 18 },
   { key: "website", kind: "string", width: 30 },
   { key: "industry", kind: "string", width: 18 },
   { key: "exactAddress", kind: "string", width: 40 },

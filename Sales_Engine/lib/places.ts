@@ -22,6 +22,10 @@ export interface ScrapedPlace {
   /** Every public email found on the business website. */
   emails?: string[];
   phone: string;
+  /** Decision-maker found with Apollo (shown on the map; saved on the lead). */
+  contactName?: string | null;
+  contactTitle?: string | null;
+  phoneStatus?: string | null;
   companyWebsite: string;
   exactAddress: string;
   location: string;

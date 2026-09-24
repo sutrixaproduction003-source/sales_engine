@@ -55,6 +55,13 @@ export function PlaceDetailCard({
         )}
         <div className="min-w-0">
           <h3 className="text-sm font-semibold leading-snug text-white">{place.companyName}</h3>
+          {place.contactName && (
+            <p className="mt-0.5 text-xs text-sky-300">
+              {place.contactName}
+              {place.contactTitle && <span className="text-slate-400"> · {place.contactTitle}</span>}
+              {place.phoneStatus === "pending" && <span className="text-slate-500"> · mobile coming</span>}
+            </p>
+          )}
           <p className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-400">
             <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color ?? "#94a3b8" }} />
             {place.industry || placeCategory(place)}

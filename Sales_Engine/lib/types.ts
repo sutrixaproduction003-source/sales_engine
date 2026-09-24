@@ -128,6 +128,8 @@ export interface PipelineLead {
 
   phoneStatus?: string | null;
 
+  companyPhone?: string | null;
+
   linkedinUrl?: string | null;
 
   linkedinAvailable?: boolean;

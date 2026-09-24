@@ -16,6 +16,7 @@ import {
   Search,
   Sparkles,
   Star,
+  UserRoundSearch,
   X,
 } from "lucide-react";
 import { Button, Input, Select, cn } from "@/components/ui";
@@ -24,6 +25,7 @@ import { buildCategoryColors, hasCoordinates, placeCategory, type ScrapedPlace }
 import { usePlacesSearch } from "@/lib/usePlacesSearch";
 import { useAutoDraft } from "@/lib/useAutoDraft";
 import { getHubSpotStatus, syncToHubSpot } from "@/lib/hubspotClient";
+import { apolloConfigured, findBusinessContacts, type BusinessContactUpdate } from "@/lib/apolloClient";
 
 // Leaflet touches `window` at import time, so the map is client-only.
 const LeadMap = dynamic(() => import("@/components/map/LeadMap"), {
@@ -42,6 +44,8 @@ const formatElapsed = (seconds: number) => `${Math.floor(seconds / 60)}:${String
 function exportPlacesCsv(places: ScrapedPlace[]) {
   const rows = places.map((p) => ({
     Name: p.companyName,
+    Contact: p.contactName ?? "",
+    "Contact title": p.contactTitle ?? "",
     Category: placeCategory(p),
     "Google category": p.industry,
     Email: p.email,
@@ -108,6 +112,12 @@ function ResultRow({
               </span>
             )}
           </div>
+          {place.contactName && (
+            <p className="truncate text-sky-300">
+              {place.contactName}
+              {place.contactTitle && <span className="text-slate-500"> · {place.contactTitle}</span>}
+            </p>
+          )}
           <p className="truncate text-slate-500">{place.exactAddress || place.location || "Address unavailable"}</p>
           <div className="mt-1 flex items-center gap-2.5 text-slate-500">
             <span title={place.email || "No email"} className={place.email ? "text-emerald-400" : "text-slate-700"}>
@@ -142,7 +152,33 @@ export function MapDiscovery() {
   const [fitKey, setFitKey] = useState(0);
   const [filter, setFilter] = useState("");
 
-  const { status, run, places, error, elapsed, search, cancel } = usePlacesSearch();
+  const { status, run, places: scrapedPlaces, error, elapsed, search, cancel } = usePlacesSearch();
+  const [apolloReady, setApolloReady] = useState<boolean | null>(null);
+  const [apolloPhones, setApolloPhones] = useState(true);
+  const [apollo, setApollo] = useState<{ running: boolean; text: string; error?: string } | null>(null);
+  const [contacts, setContacts] = useState<Record<number, BusinessContactUpdate>>({});
+
+  useEffect(() => {
+    apolloConfigured().then(setApolloReady);
+  }, []);
+
+  // Businesses with a decision-maker found on Apollo show that person's details.
+  const places = useMemo(
+    () =>
+      scrapedPlaces.map((p) => {
+        const c = p.dbId != null ? contacts[p.dbId] : undefined;
+        if (!c) return p;
+        return {
+          ...p,
+          contactName: c.name ?? p.contactName,
+          contactTitle: c.jobTitle ?? p.contactTitle,
+          email: c.email || p.email,
+          phone: c.phone || p.phone,
+          phoneStatus: c.phoneStatus ?? p.phoneStatus,
+        };
+      }),
+    [scrapedPlaces, contacts]
+  );
   const busy = status === "starting" || status === "scraping";
   const fromOsm = run?.source === "openstreetmap";
   const drafts = useAutoDraft();
@@ -159,7 +195,11 @@ export function MapDiscovery() {
         .then((hubspot) => (hubspot.connected && hubspot.autoSync && ids.length ? syncToHubSpot(ids) : null))
         .catch((error) => console.error("HubSpot sync after scrape failed:", error));
     }
-    if (status === "starting") resetDrafts();
+    if (status === "starting") {
+      resetDrafts();
+      setContacts({});
+      setApollo(null);
+    }
   }, [status, run, draftAll, resetDrafts]);
 
   const project = getProject(projectId);
@@ -183,6 +223,54 @@ export function MapDiscovery() {
     }),
     [places]
   );
+
+  // Apollo fallback: saved businesses with a website but no email or phone.
+  const missingContacts = useMemo(
+    () =>
+      places.filter(
+        (p) =>
+          p.dbId != null &&
+          p.companyWebsite &&
+          !p.contactName &&
+          p.status !== "SYNCED" &&
+          p.status !== "REJECTED" &&
+          (!p.email || !p.phone)
+      ),
+    [places]
+  );
+
+  const findContacts = async () => {
+    const ids = missingContacts.map((p) => p.dbId as number);
+    const found = new Map<number, BusinessContactUpdate>();
+    setApollo({ running: true, text: "Starting Apollo lookups…" });
+    try {
+      const res = await findBusinessContacts(
+        ids,
+        { phone: apolloPhones, project: projectId },
+        (text) => setApollo({ running: true, text }),
+        (id, contact) => {
+          found.set(id, { ...found.get(id), ...contact });
+          setContacts((current) => ({ ...current, [id]: { ...current[id], ...contact } }));
+        }
+      );
+      setApollo({
+        running: false,
+        text:
+          `Apollo found ${res.contacts} decision-makers for ${ids.length} businesses · ${res.emails} work emails` +
+          (apolloPhones ? ` · ${res.phones} mobile numbers` : "") +
+          (res.pending ? ` · ${res.pending} mobiles still coming (collect them in Leads Hub)` : ""),
+        error: res.error,
+      });
+      // Re-draft for the person found: addressed by name, to their own email.
+      const redraft = places
+        .filter((p) => p.dbId != null && found.has(p.dbId))
+        .map((p) => ({ ...p, email: found.get(p.dbId as number)?.email || p.email, status: "PENDING" as const }))
+        .filter((p) => p.email);
+      if (redraft.length) draftAll(redraft);
+    } catch (err) {
+      setApollo({ running: false, text: "", error: err instanceof Error ? err.message : String(err) });
+    }
+  };
 
   const canSearch = location.trim().length > 0 && (!needsKeyword || keyword.trim().length > 0) && !busy;
 
@@ -343,6 +431,52 @@ export function MapDiscovery() {
           </>
         )}
       </div>
+
+      {status === "done" && (missingContacts.length > 0 || apollo) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-sm">
+          {apollo?.running ? (
+            <Loader2 className="h-4 w-4 animate-spin text-amber-300" />
+          ) : (
+            <UserRoundSearch className="h-4 w-4 text-amber-300" />
+          )}
+          {apollo ? (
+            <span className="text-amber-100">
+              {apollo.text}
+              {apollo.error && <span className="text-rose-300"> — {apollo.error}</span>}
+            </span>
+          ) : (
+            <span className="text-amber-100">
+              {missingContacts.length} businesses have no email or phone. Find a decision-maker&apos;s work email
+              {apolloPhones ? " and mobile" : ""} with Apollo.
+            </span>
+          )}
+          {!apollo?.running && missingContacts.length > 0 && (
+            apolloReady ? (
+              <span className="ml-auto flex items-center gap-3">
+                <label className="flex items-center gap-1.5 text-xs text-slate-300" title="Up to 8 Apollo credits per mobile found">
+                  <input type="checkbox" checked={apolloPhones} onChange={(e) => setApolloPhones(e.target.checked)} />
+                  Include mobile numbers
+                </label>
+                <Button
+                  variant="secondary"
+                  className="!px-2.5 !py-1 text-xs"
+                  onClick={findContacts}
+                  disabled={drafts.running}
+                  title={`1 Apollo credit per person found${apolloPhones ? " + up to 8 per mobile" : ""}`}
+                >
+                  Find contacts ({missingContacts.length})
+                </Button>
+              </span>
+            ) : (
+              apolloReady === false && (
+                <Link href="/settings" className="ml-auto text-xs text-sky-300 hover:underline">
+                  Add your Apollo key in Settings →
+                </Link>
+              )
+            )
+          )}
+        </div>
+      )}
 
       {(drafts.running || drafts.total > 0) && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-violet-500/25 bg-violet-500/10 px-3 py-2 text-sm">

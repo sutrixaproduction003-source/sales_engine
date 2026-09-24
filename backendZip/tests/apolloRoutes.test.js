@@ -30,10 +30,24 @@ describe('Apollo lead search', () => {
       person_locations: ['Chennai, India'],
       person_titles: ['Medical Director', 'CEO'],
       include_similar_titles: true,
-      q: 'hospital',
+      q_keywords: 'hospital',
       per_page: 25,
     });
     expect(res.body.people[0]).toMatchObject({ id: 'p1', firstName: 'Asha', jobTitle: 'Medical Director', companyName: 'MIOT' });
+  });
+
+  test('searches people at a company by its website domain', async () => {
+    client.post.mockResolvedValue({ status: 200, data: { people: [], total_entries: 0 } });
+    const res = await request(app)
+      .post('/api/apollo/search')
+      .send({ domain: 'https://www.miot.in/contact', seniorities: ['owner', 'c_suite'], perPage: 5 });
+    expect(res.status).toBe(200);
+    expect(client.post.mock.calls[0][1]).toMatchObject({
+      q_organization_domains_list: ['miot.in'],
+      person_seniorities: ['owner', 'c_suite'],
+      per_page: 5,
+    });
+    expect(client.post.mock.calls[0][1].person_locations).toBeUndefined();
   });
 
   test('requires a location', async () => {

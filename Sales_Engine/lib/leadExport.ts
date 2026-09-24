@@ -14,6 +14,7 @@ export const EXPORT_COLUMNS: { header: string; width: number; value: (lead: Lead
   { header: "Company", width: 28, value: (l) => text(l.company) },
   { header: "Email", width: 30, value: (l) => text(l.email) },
   { header: "Phone", width: 18, value: (l) => text(l.phone) },
+  { header: "Company phone", width: 18, value: (l) => text(l.companyPhone) },
   { header: "Website", width: 28, value: (l) => text(l.website) },
   { header: "LinkedIn", width: 30, value: (l) => text(l.linkedinUrl) },
   { header: "City", width: 14, value: (l) => text(l.city) },
