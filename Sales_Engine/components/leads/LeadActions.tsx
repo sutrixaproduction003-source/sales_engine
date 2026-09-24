@@ -114,7 +114,7 @@ export function LeadActions({ leads }: { leads: PipelineLead[] }) {
         disabled={busy !== null || !apolloReady || lookUpQueue.length === 0}
         title={
           apolloReady === false
-            ? "Add APOLLO_API_KEY to backendZip/.env to look up work emails"
+            ? "Add your Apollo.io API key in Settings → API keys to look up work emails"
             : `Look up work emails for ${lookUpQueue.length} people without one (1 Apollo credit each)`
         }
       >
@@ -150,8 +150,7 @@ export function LeadActions({ leads }: { leads: PipelineLead[] }) {
       )}
       {apolloReady === false && lookUpQueue.length > 0 && !msg && (
         <span className="basis-full text-xs text-slate-500">
-          {lookUpQueue.length} people have no email. To look them up, add an Apollo API key (APOLLO_API_KEY) to the backend and
-          restart it.
+          {lookUpQueue.length} people have no email. To look them up, add your Apollo.io API key in Settings → API keys.
         </span>
       )}
     </div>

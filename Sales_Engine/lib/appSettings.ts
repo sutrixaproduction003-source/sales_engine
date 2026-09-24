@@ -16,6 +16,7 @@ const ENV_PATH = path.join(process.cwd(), ".env.local");
 /** Settings the Settings page can edit. */
 export const SETTING_KEYS = [
   "APIFY_TOKEN",
+  "APOLLO_API_KEY",
   "GROQ_API_KEY",
   "DEEPSEEK_API_KEY",
   "HUBSPOT_ACCESS_TOKEN",

@@ -15,11 +15,17 @@ type Key =
   | "SENDER_PITCH"
   | "DEEPSEEK_API_KEY"
   | "GROQ_API_KEY"
-  | "APIFY_TOKEN";
+  | "APIFY_TOKEN"
+  | "APOLLO_API_KEY";
 
 type SettingsData = { values: Record<Key, string>; configured: Record<Key, boolean> };
 
 const API_KEYS: { key: Key; label: string; hint: string }[] = [
+  {
+    key: "APOLLO_API_KEY",
+    label: "Apollo.io",
+    hint: "Finds decision-makers at a business and their work emails (Discovery, Find missing emails). 1 credit per email found",
+  },
   { key: "DEEPSEEK_API_KEY", label: "DeepSeek", hint: "AI email drafts (optional — a template is used without it)" },
   { key: "GROQ_API_KEY", label: "Groq", hint: "Alternative AI provider for drafts (optional)" },
   { key: "APIFY_TOKEN", label: "Apify", hint: "Reads websites that block simple requests (optional)" },

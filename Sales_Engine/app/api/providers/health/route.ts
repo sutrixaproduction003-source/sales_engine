@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { PROVIDER_BACKEND_URL } from "@/lib/providerBackend";
+import { getFromBackend } from "@/lib/providerBackend";
 
 export const runtime = "nodejs";
 
@@ -10,7 +10,7 @@ export const runtime = "nodejs";
  */
 export async function GET() {
   try {
-    const res = await fetch(`${PROVIDER_BACKEND_URL}/api/crm/health`, { cache: "no-store" });
+    const res = await getFromBackend("/api/crm/health");
     const data = (await res.json().catch(() => null)) as {
       success?: boolean;
       error?: { message?: string };

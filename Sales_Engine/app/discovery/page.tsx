@@ -287,7 +287,7 @@ export default function DiscoveryPage() {
             {!result.apolloConfigured && (
               <p className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-xs text-slate-400">
                 Personal emails aren&apos;t public — drafts go to the business inbox addressed to the person by name. Add
-                an Apollo key in the backend to look up verified work emails.
+                your Apollo.io API key in Settings to look up verified work emails.
               </p>
             )}
 

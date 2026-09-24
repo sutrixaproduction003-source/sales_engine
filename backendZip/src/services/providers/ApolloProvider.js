@@ -8,6 +8,7 @@
 
 const BaseProvider = require('./BaseProvider');
 const { apolloApiKey } = require('../../config/env');
+const { currentContext } = require('../../utils/requestContext');
 const { createError } = require('../../utils/errors');
 
 const SEARCH_PATH = '/mixed_people/api_search';
@@ -183,16 +184,24 @@ function mapNetworkError(error) {
 class ApolloProvider extends BaseProvider {
   constructor() {
     super('apollo', {
-      apiKey: apolloApiKey,
       baseURL: 'https://api.apollo.io/api/v1',
-      headers: { 'x-api-key': apolloApiKey, Accept: 'application/json' },
+      headers: { Accept: 'application/json' },
     });
   }
 
-  async post(path, body, config) {
+  /** The key saved in the app's Settings (forwarded per request), else backendZip/.env. */
+  get apiKey() {
+    return currentContext().apolloApiKey || apolloApiKey;
+  }
+
+  set apiKey(_value) {
+    // Set by BaseProvider's constructor; the key is always resolved per request.
+  }
+
+  async post(path, body, config = {}) {
     this.ensureConfigured();
     try {
-      return await this.client.post(path, body, config);
+      return await this.client.post(path, body, { ...config, headers: { ...config.headers, 'x-api-key': this.apiKey } });
     } catch (error) {
       throw mapNetworkError(error);
     }
