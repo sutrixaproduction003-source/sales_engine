@@ -128,7 +128,7 @@ export function LeadsHub() {
               <th className="hidden px-3 py-3 lg:table-cell">Website</th>
               <th className="hidden px-3 py-3 xl:table-cell">Email</th>
               <th className="hidden px-3 py-3 lg:table-cell">Source</th>
-              <th className="px-3 py-3">Lead Score</th>
+              <th className="hidden px-3 py-3 sm:table-cell">Lead Score</th>
               <th className="hidden px-3 py-3 lg:table-cell">Data Quality</th>
               <th className="px-3 py-3">State</th>
               <th className="hidden px-3 py-3 xl:table-cell">Last Activity</th>
@@ -172,7 +172,7 @@ export function LeadsHub() {
                     {lead.source || "N/A"}
                   </span>
                 </td>
-                <td className="px-3 py-2.5 text-xs text-slate-500">N/A</td>
+                <td className="hidden px-3 py-2.5 text-xs text-slate-500 sm:table-cell">N/A</td>
                 <td className="hidden px-3 py-2.5 text-xs text-slate-500 lg:table-cell">N/A</td>
                 <td className="px-3 py-2.5">
                   <StateBadge state={lead.status} size="sm" />

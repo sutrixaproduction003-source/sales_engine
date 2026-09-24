@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Bell } from "lucide-react";
+import { Search, Bell, Menu } from "lucide-react";
 import { cn } from "@/components/ui";
 
 const SEARCH_TYPES = ["Leads", "Companies", "Emails", "Domains"];
 
-export function TopBar() {
+export function TopBar({ onMenu }: { onMenu?: () => void }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [type, setType] = useState("Leads");
@@ -31,14 +31,23 @@ export function TopBar() {
   };
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-slate-800 bg-slate-950/95 px-4 backdrop-blur">
-      <div className="relative flex-1">
+    <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b border-slate-800 bg-slate-950/95 px-3 backdrop-blur sm:gap-3 sm:px-4">
+      {onMenu && (
+        <button
+          onClick={onMenu}
+          className="rounded-lg border border-slate-800 bg-slate-900/70 p-2 text-slate-300 hover:text-white md:hidden"
+          aria-label="Open menu"
+        >
+          <Menu className="h-4 w-4" />
+        </button>
+      )}
+      <div className="relative min-w-0 flex-1">
         <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submitSearch()}
-          placeholder="Search leads, companies, emails, domains..."
+          placeholder="Search leads, companies…"
           className="w-full rounded-lg border border-slate-800 bg-slate-900/70 py-2 pl-8 pr-24 text-sm text-slate-100 placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none"
         />
         <div className="absolute right-2 top-1/2 -translate-y-1/2">
