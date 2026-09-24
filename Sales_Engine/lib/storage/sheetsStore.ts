@@ -9,7 +9,7 @@
 
 import { getSetting } from "@/lib/appSettings";
 import type { Lead } from "@/lib/leadModel";
-import { HEADERS, SHEET_NAME, leadToRow, rowsToLeads } from "./leadColumns";
+import { HEADERS, SHEET_NAME, cellText, leadToRow, mapRows } from "./leadColumns";
 import { getAccessToken, getServiceAccount } from "./googleAuth";
 import { createHash } from "crypto";
 import { LeadStoreError, type LeadStoreDriver } from "./types";
@@ -74,7 +74,25 @@ async function ensureTab(): Promise<void> {
   });
 }
 
-const state = globalThis as unknown as { __sheetsRowCount?: number; __sheetsFingerprint?: string | null };
+/** What the last read saw: where each lead's row is, so saves touch only those rows. */
+interface SheetLayout {
+  /** Header cells as they are in the sheet (people may reorder or add columns). */
+  header: string[];
+  /** Lead id → sheet row number (1-based; row 1 is the header). */
+  rowOf: Map<number, number>;
+  /** Lead id → the row's cells as read (kept for columns the app doesn't know). */
+  cells: Map<number, unknown[]>;
+  /** Leads whose id cell was missing or duplicated: written with their new id on the next save. */
+  unsavedIds: Set<number>;
+  /** Rows in use, including the header. */
+  rowCount: number;
+}
+
+const state = globalThis as unknown as {
+  __sheetsRowCount?: number;
+  __sheetsFingerprint?: string | null;
+  __sheetsLayout?: SheetLayout | null;
+};
 
 const hash = (values: unknown[][]) => createHash("sha256").update(JSON.stringify(values)).digest("hex");
 
@@ -100,8 +118,69 @@ async function read(): Promise<Lead[]> {
   const values = await readValues();
   state.__sheetsRowCount = values.length;
   state.__sheetsFingerprint = hash(values);
+  const header = (values[0] ?? []).map((cell) => cellText(cell) ?? "");
+  const layout: SheetLayout = { header, rowOf: new Map(), cells: new Map(), unsavedIds: new Set(), rowCount: values.length };
+  state.__sheetsLayout = layout;
   if (values.length === 0) return [];
-  return rowsToLeads(values[0], values.slice(1));
+
+  const rows = values.slice(1);
+  const { leads, rowIndex, idAssigned } = mapRows(values[0], rows);
+  leads.forEach((lead, i) => {
+    layout.rowOf.set(lead.id, rowIndex[i] + 2);
+    layout.cells.set(lead.id, rows[rowIndex[i]]);
+    if (idAssigned[i]) layout.unsavedIds.add(lead.id);
+  });
+  return leads;
+}
+
+/**
+ * Save only the rows of these leads (and the header when columns are
+ * missing), in the sheet's own column order. Rows nobody changed are never
+ * rewritten, so edits made in the sheet meanwhile are kept. Needs the layout
+ * of a read() just before — which transactions always do.
+ */
+async function writeRows(leads: Lead[], changedIds: Set<number>): Promise<void> {
+  const layout = state.__sheetsLayout;
+  if (!layout) return write(leads);
+  await ensureTab();
+
+  const header = [...layout.header];
+  for (const key of HEADERS) if (!header.includes(key)) header.push(key);
+  const data: { range: string; values: unknown[][] }[] = [];
+  if (header.length !== layout.header.length || header.some((h, i) => h !== layout.header[i])) {
+    data.push({ range: `${SHEET_NAME}!A1`, values: [header] });
+  }
+
+  const byId = new Map(leads.map((lead) => [lead.id, lead]));
+  let nextRow = Math.max(layout.rowCount, 1) + 1;
+  const ids = Array.from(new Set(Array.from(changedIds).concat(Array.from(layout.unsavedIds))));
+  for (const id of ids) {
+    const lead = byId.get(id);
+    if (!lead) continue;
+    const known = leadToRow(lead, { datesAsText: true });
+    const previous = layout.cells.get(id) ?? [];
+    const row = header.map((h) => {
+      const at = (HEADERS as string[]).indexOf(h);
+      if (at >= 0) return known[at] ?? "";
+      // A column someone added by hand: keep its value.
+      const oldAt = layout.header.indexOf(h);
+      return oldAt >= 0 ? previous[oldAt] ?? "" : "";
+    });
+    const sheetRow = layout.rowOf.get(id) ?? nextRow++;
+    layout.rowOf.set(id, sheetRow);
+    data.push({ range: `${SHEET_NAME}!A${sheetRow}`, values: [row] });
+  }
+  if (!data.length) return;
+
+  await sheetsRequest("/values:batchUpdate", {
+    method: "POST",
+    body: JSON.stringify({ valueInputOption: "RAW", data }),
+  });
+  layout.header = header;
+  layout.unsavedIds.clear();
+  layout.rowCount = Math.max(layout.rowCount, nextRow - 1);
+  state.__sheetsRowCount = layout.rowCount;
+  state.__sheetsFingerprint = null;
 }
 
 async function write(leads: Lead[]): Promise<void> {
@@ -117,6 +196,7 @@ async function write(leads: Lead[]): Promise<void> {
   });
   state.__sheetsRowCount = leads.length + 1;
   state.__sheetsFingerprint = null;
+  state.__sheetsLayout = null;
 }
 
 /** Time bucket: the sheet is re-read at most every CACHE_WINDOW_MS. */
@@ -129,6 +209,7 @@ export const sheetsStore: LeadStoreDriver = {
   label: "Google Sheets",
   read,
   write,
+  writeRows,
   version,
   fingerprint,
   lastReadFingerprint: () => state.__sheetsFingerprint ?? null,

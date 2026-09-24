@@ -11,8 +11,15 @@ export const SESSION_MAX_AGE = 30 * 24 * 60 * 60;
 
 export const appPassword = () => process.env.APP_PASSWORD?.trim() || "";
 
-/** Deployed on Vercel without a password: the app must not run open. */
-export const passwordRequiredButMissing = () => !appPassword() && process.env.VERCEL === "1";
+/**
+ * Deployed passwords must be long: login throttling is per server instance,
+ * so the password's length is what really stops guessing.
+ */
+export const MIN_DEPLOYED_PASSWORD_LENGTH = 12;
+
+/** Deployed on Vercel without a (long enough) password: the app must not run open. */
+export const passwordRequiredButMissing = () =>
+  process.env.VERCEL === "1" && appPassword().length < MIN_DEPLOYED_PASSWORD_LENGTH;
 
 function toHex(buffer: ArrayBuffer) {
   return Array.from(new Uint8Array(buffer), (b) => b.toString(16).padStart(2, "0")).join("");

@@ -6,6 +6,11 @@ export interface LeadStoreDriver {
   label: string;
   read(): Promise<Lead[]>;
   write(leads: Lead[]): Promise<void>;
+  /**
+   * Save only these leads' rows (stores people edit directly), leaving every
+   * other row untouched. Used by transactions right after a fresh read().
+   */
+  writeRows?(leads: Lead[], changedIds: Set<number>): Promise<void>;
   /** Changes when the stored data may have changed (cache key). */
   version(): Promise<string>;
   /**

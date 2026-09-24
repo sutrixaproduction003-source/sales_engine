@@ -88,8 +88,9 @@ export interface LeadTransaction {
  */
 export function transaction<T>(fn: (tx: LeadTransaction) => T, driver: LeadStoreDriver = activeStore()): Promise<T> {
   return serialize(async () => {
-    // Stores edited by people too (Google Sheets) are read fresh and checked
-    // before saving; if the table changed meanwhile, redo on the new data.
+    // Stores edited by people too (Google Sheets) are read fresh, save only
+    // the rows this transaction changed, and check first that the sheet didn't
+    // change meanwhile (else redo on the new data) — so hand edits survive.
     const guarded = Boolean(driver.fingerprint && driver.lastReadFingerprint);
     for (let attempt = 0; ; attempt++) {
       const outcome = await attemptTransaction(fn, driver, guarded);
@@ -110,6 +111,7 @@ async function attemptTransaction<T>(
     const leads = (guarded ? await driver.read() : await load(driver)).map(clone);
     const readAs = guarded ? driver.lastReadFingerprint!() : null;
     let dirty = false;
+    const changed = new Set<number>();
     let nextId = leads.reduce((max, l) => Math.max(max, l.id), 0) + 1;
 
     const tx: LeadTransaction = {
@@ -125,6 +127,7 @@ async function attemptTransaction<T>(
         leads.push(lead);
         nextId++;
         dirty = true;
+        changed.add(lead.id);
         return clone(lead);
       },
       update: (id, patch) => {
@@ -134,6 +137,7 @@ async function attemptTransaction<T>(
         assertUnique(leads, updated);
         leads[index] = updated;
         dirty = true;
+        changed.add(id);
         return clone(updated);
       },
     };
@@ -141,8 +145,14 @@ async function attemptTransaction<T>(
     const result = fn(tx);
     if (dirty) {
       if (guarded && (await driver.fingerprint!()) !== readAs) return { done: false };
-      await driver.write(leads);
-      state.cache.set(driver.id, { version: await driver.version(), leads });
+      if (guarded && driver.writeRows) {
+        await driver.writeRows(leads, changed);
+        // The sheet may now hold edits this snapshot doesn't: read it next time.
+        state.cache.delete(driver.id);
+      } else {
+        await driver.write(leads);
+        state.cache.set(driver.id, { version: await driver.version(), leads });
+      }
     }
     return { done: true, result };
   }
