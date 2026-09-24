@@ -1,15 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw, ArrowRight, AlertTriangle } from "lucide-react";
 import { Button, Card } from "@/components/ui";
 import { MapDiscovery } from "@/components/MapDiscovery";
 import { KpiCard, PipelineCard } from "@/components/overviewCards";
-import { getStats } from "@/lib/leadService";
 import { refreshLeads, useLeadsStore } from "@/lib/leadStore";
 import { LeadState } from "@/lib/states";
 import type { StatsResponse } from "@/lib/types";
+import { useStats } from "@/lib/useStats";
 
 /**
  * Overview — fully data-driven:
@@ -20,25 +20,15 @@ import type { StatsResponse } from "@/lib/types";
 export default function OverviewPage() {
   const router = useRouter();
   const { leads } = useLeadsStore();
-  const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [statsError, setStatsError] = useState<string | null>(null);
-
-  const loadStats = useCallback(async () => {
-    setStatsError(null);
-    try {
-      setStats(await getStats());
-    } catch (err) {
-      setStatsError(err instanceof Error ? err.message : "Failed to load pipeline statistics.");
-    }
-  }, []);
+  const { stats, error: statsError, reload: loadStats } = useStats();
 
   const refreshAll = useCallback(async () => {
     await Promise.all([loadStats(), refreshLeads()]);
   }, [loadStats]);
 
   useEffect(() => {
-    refreshAll();
-  }, [refreshAll]);
+    refreshLeads();
+  }, []);
 
   const s: StatsResponse = stats ?? { total: 0, pending: 0, scraped: 0, personalized: 0, synced: 0 };
   const kpis: [string, number][] = [

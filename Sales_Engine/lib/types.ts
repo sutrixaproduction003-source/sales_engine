@@ -60,7 +60,7 @@ export type LeadCategory =
 /**
  * Detailed category/sub-category.
  *
- * These values correspond to lib/leadCategories.ts.
+ * These values correspond to the backend config/leadCategories.js.
  */
 export type LeadSubCategory =
   // Channel Partners
@@ -284,7 +284,7 @@ export interface SearchFilters {
    * Optional selectable target categories.
    *
    * These can later be populated from the project registry
-   * or lib/leadCategories.ts.
+   * or the backend config/leadCategories.js.
    */
   categories?: string[];
 

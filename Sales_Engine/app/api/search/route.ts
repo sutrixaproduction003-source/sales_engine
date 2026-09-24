@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import type { SearchProvider } from "@/lib/searchProviders";
 import { AVAILABLE_PROVIDERS } from "@/lib/searchProviders";
+import { postToBackend } from "@/lib/providerBackend";
+import { cleanString, isUniqueViolation, toLeadDetails, type ProviderLead } from "@/lib/leadRecord";
 
 export const runtime = "nodejs";
 
@@ -24,6 +26,8 @@ interface SearchBody {
   };
   page?: number;
 }
+
+type SearchResultItem = ProviderLead & { name?: string; website?: string; company?: string };
 
 export async function POST(request: Request) {
   try {
@@ -51,46 +55,34 @@ export async function POST(request: Request) {
 
     switch (provider) {
       case "duckduckgo":
-        providerResponse = await fetch(
-          `${process.env.VERCEL_URL ? "https://" : "http://localhost:3000"}/api/search/duckduckgo`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ filters, page }),
-          }
-        );
+        providerResponse = await fetch(new URL("/api/search/duckduckgo", request.url), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filters, page }),
+        });
         break;
 
       case "apollo":
       case "hunter":
       case "prospeo":
-        // Route to backend provider service
-        const backendUrl = process.env.LEAD_BACKEND_URL || "http://localhost:5000";
-        providerResponse = await fetch(`${backendUrl}/api/leads/search`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            provider,
-            filters: {
-              location: filters.location,
-              industry: filters.industry,
-              job_title: filters.jobTitle,
-              keywords: filters.keywords,
-              company: filters.company,
-              hotel_name: filters.hotelName,
-              brand_type: filters.brandType,
-              property_size_category: filters.propertySizeCategory,
-            },
-            page,
-          }),
+        providerResponse = await postToBackend("/api/leads/search", {
+          provider,
+          filters: {
+            location: filters.location,
+            industry: filters.industry,
+            job_title: filters.jobTitle,
+            keywords: filters.keywords,
+            company: filters.company,
+            hotel_name: filters.hotelName,
+            brand_type: filters.brandType,
+            property_size_category: filters.propertySizeCategory,
+          },
+          page,
         });
         break;
 
       default:
-        return NextResponse.json(
-          { error: "Provider not supported" },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "Provider not supported" }, { status: 400 });
     }
 
     if (!providerResponse.ok) {
@@ -105,24 +97,28 @@ export async function POST(request: Request) {
     }
 
     const data = await providerResponse.json();
-    const items = data.data?.items || [];
+    const items: SearchResultItem[] = data.data?.items || [];
 
     let saved = 0;
     for (const item of items) {
-      const email = (item.email ?? "").trim();
+      const email = cleanString(item.email);
       if (!email) continue;
       try {
         await prisma.lead.create({
           data: {
-            name: (item.fullName ?? item.name ?? "").trim() || email.split("@")[0],
+            ...toLeadDetails(item),
+            name: cleanString(item.fullName ?? item.name) || email.split("@")[0],
             email,
-            website: (item.companyWebsite ?? item.website ?? "").trim(),
-            company: (item.companyName ?? item.company ?? "").trim() || null,
+            website: cleanString(item.companyWebsite ?? item.website),
+            company: cleanString(item.companyName ?? item.company) || null,
+            source: cleanString(item.source) || provider,
             status: "PENDING",
           },
         });
         saved++;
-      } catch {}
+      } catch (error) {
+        if (!isUniqueViolation(error)) console.error("Failed to save search result:", error);
+      }
     }
 
     return NextResponse.json({ ...data, saved });

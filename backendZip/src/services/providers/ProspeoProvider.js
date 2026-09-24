@@ -1,48 +1,19 @@
-const axios = require('axios');
 const { prospeoApiKey } = require('../../config/env');
+const { createError } = require('../../utils/errors');
 const BaseProvider = require('./BaseProvider');
 
 /**
- * Safely parse a response body that may be a string (from axios transformResponse)
- * or already an object. Never throws — returns the raw value if parsing fails.
- */
-function safeParse(data) {
-  if (data === null || data === undefined) return null;
-  if (typeof data === 'object') return data;
-  if (typeof data === 'string') {
-    const trimmed = data.trim();
-    if (!trimmed) return null;
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      return { raw: trimmed };
-    }
-  }
-  return data;
-}
-
-/**
- * Check a Prospeo API response for error indicators.
- * Prospeo returns { req_status: false, error_toast: "..." } on failure.
- * Throws a structured error when the response indicates failure.
+ * Prospeo signals failure with `{ error: true }` (REST) or
+ * `{ req_status: false }` (legacy); turn either into a thrown error.
  */
 function assertProspeoResponse(data, statusCode) {
   if (!data) {
-    const err = new Error('Prospeo API returned an empty response.');
-    err.code = 'PROSPEO_EMPTY_RESPONSE';
-    err.statusCode = 502;
-    throw err;
+    throw createError('Prospeo API returned an empty response.', 'PROSPEO_EMPTY_RESPONSE', 502);
   }
 
-  // Support both the current REST envelope and the legacy response shape.
   if (data.error === true || data.req_status === false) {
-    const err = new Error(
-      data.filter_error || data.error_code || data.error_toast || 'Prospeo API request failed.'
-    );
-    err.code = 'PROSPEO_API_ERROR';
-    err.statusCode = statusCode >= 500 ? 502 : 400;
-    err.details = data;
-    throw err;
+    const message = data.filter_error || data.error_code || data.error_toast || 'Prospeo API request failed.';
+    throw createError(message, 'PROSPEO_API_ERROR', statusCode >= 500 ? 502 : 400, { details: data });
   }
 
   return data;
@@ -61,6 +32,8 @@ function flattenResult(result) {
   const location = person.location || {};
   const hotelName = company.name;
   const locationText = [location.city, location.state, location.country].filter(Boolean).join(', ');
+  const placeQuery = hotelName ? encodeURIComponent(`${hotelName} ${locationText}`.trim()) : null;
+
   return {
     id: person.person_id,
     firstName: person.first_name,
@@ -76,87 +49,70 @@ function flattenResult(result) {
     city: location.city,
     state: location.state || location.country,
     hotelName,
-    googleMapsLink: hotelName
-      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${hotelName} ${locationText}`.trim())}`
-      : undefined,
-    googleBusinessLink: hotelName
-      ? `https://www.google.com/search?q=${encodeURIComponent(`${hotelName} ${locationText}`.trim())}`
-      : undefined,
+    googleMapsLink: placeQuery ? `https://www.google.com/maps/search/?api=1&query=${placeQuery}` : undefined,
+    googleBusinessLink: placeQuery ? `https://www.google.com/search?q=${placeQuery}` : undefined,
     industry: company.industry,
     source: 'prospeo',
   };
 }
 
+/**
+ * Free-text search filters that Prospeo needs resolved through
+ * /search-suggestions before they can be used in /search-person.
+ */
+const SUGGESTED_FILTERS = [
+  {
+    filter: 'location',
+    searchKey: 'location_search',
+    resultKey: 'location_suggestions',
+    apply: (value) => ({ person_location_search: { include: [value] } }),
+  },
+  {
+    filter: 'industry',
+    searchKey: 'industry_search',
+    resultKey: 'industry_suggestions',
+    apply: (value) => ({ company_industry: { include: [value] } }),
+  },
+  {
+    filter: 'job_title',
+    searchKey: 'job_title_search',
+    resultKey: 'job_title_suggestions',
+    apply: (value) => ({ person_job_title: { include: [value], match_mode: 'CONTAINS' } }),
+  },
+];
+
 class ProspeoProvider extends BaseProvider {
   constructor() {
-    super('prospeo');
-    this.client = axios.create({
+    super('prospeo', {
+      apiKey: prospeoApiKey,
       baseURL: 'https://api.prospeo.io',
-      timeout: 15000,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      // Accept all status codes — Prospeo returns 404 with a JSON body
-      // for invalid keys rather than a standard error.
-      validateStatus: () => true,
-      // Safely parse JSON — never throw on malformed JSON bodies.
-      transformResponse: [(data) => {
-        if (typeof data !== 'string') return data;
-        try {
-          return JSON.parse(data);
-        } catch {
-          return data; // return raw string; assertProspeoResponse will handle it
-        }
-      }],
+      headers: { 'X-KEY': prospeoApiKey },
     });
   }
 
-  _ensureApiKey() {
-    if (!prospeoApiKey) {
-      const error = new Error('Prospeo API key is missing.');
-      error.code = 'MISSING_API_KEY';
-      error.statusCode = 401;
-      throw error;
-    }
+  async request(method, path, { data, params } = {}) {
+    this.ensureConfigured();
+    const response = await this.client.request({ method, url: path, data, params });
+    return assertProspeoResponse(response.data, response.status);
+  }
+
+  async suggest(searchKey, query, resultKey) {
+    const response = await this.client.post('/search-suggestions', { [searchKey]: query });
+    return firstSuggestion(response.data, resultKey);
   }
 
   async searchPeople(filters = {}, page = 1) {
-    this._ensureApiKey();
+    this.ensureConfigured();
 
     const apiFilters = {};
-    if (filters.location?.trim()) {
-      const suggestionResponse = await this.client.post('/search-suggestions', {
-        location_search: filters.location.trim(),
-      }, { headers: { 'X-KEY': prospeoApiKey } });
-      const location = firstSuggestion(suggestionResponse.data, 'location_suggestions');
-      if (location) apiFilters.person_location_search = { include: [location] };
-    }
-    if (filters.industry?.trim()) {
-      const suggestionResponse = await this.client.post('/search-suggestions', {
-        industry_search: filters.industry.trim(),
-      }, { headers: { 'X-KEY': prospeoApiKey } });
-      const industry = firstSuggestion(suggestionResponse.data, 'industry_suggestions');
-      if (industry) apiFilters.company_industry = { include: [industry] };
-    }
-    if (filters.job_title?.trim()) {
-      const suggestionResponse = await this.client.post('/search-suggestions', {
-        job_title_search: filters.job_title.trim(),
-      }, { headers: { 'X-KEY': prospeoApiKey } });
-      const jobTitle = firstSuggestion(suggestionResponse.data, 'job_title_suggestions');
-      if (jobTitle) {
-        apiFilters.person_job_title = { include: [jobTitle], match_mode: 'CONTAINS' };
-      }
+    for (const { filter, searchKey, resultKey, apply } of SUGGESTED_FILTERS) {
+      const query = typeof filters[filter] === 'string' ? filters[filter].trim() : '';
+      if (!query) continue;
+      const suggestion = await this.suggest(searchKey, query, resultKey);
+      if (suggestion) Object.assign(apiFilters, apply(suggestion));
     }
 
-    const response = await this.client.post('/search-person', {
-      page,
-      filters: apiFilters,
-    }, {
-      headers: { 'X-KEY': prospeoApiKey },
-    });
-
-    const data = safeParse(response.data);
-    const parsed = assertProspeoResponse(data, response.status);
+    const parsed = await this.request('post', '/search-person', { data: { page, filters: apiFilters } });
     return {
       ...parsed,
       items: Array.isArray(parsed.results) ? parsed.results.map(flattenResult) : [],
@@ -164,51 +120,19 @@ class ProspeoProvider extends BaseProvider {
   }
 
   async searchCompanies(filters = {}, page = 1) {
-    this._ensureApiKey();
-
-    const response = await this.client.get('/v1/search/companies', {
-      headers: { 'X-KEY': prospeoApiKey },
-      params: {
-        ...filters,
-        page,
-      },
-    });
-
-    const data = safeParse(response.data);
-    return assertProspeoResponse(data, response.status);
+    return this.request('get', '/v1/search/companies', { params: { ...filters, page } });
   }
 
   async enrichPerson(payload = {}) {
-    this._ensureApiKey();
-
-    const response = await this.client.post('/v1/enrich/person', payload, {
-      headers: { 'X-KEY': prospeoApiKey },
-    });
-
-    const data = safeParse(response.data);
-    return assertProspeoResponse(data, response.status);
+    return this.request('post', '/v1/enrich/person', { data: payload });
   }
 
   async enrichCompany(payload = {}) {
-    this._ensureApiKey();
-
-    const response = await this.client.post('/v1/enrich/company', payload, {
-      headers: { 'X-KEY': prospeoApiKey },
-    });
-
-    const data = safeParse(response.data);
-    return assertProspeoResponse(data, response.status);
+    return this.request('post', '/v1/enrich/company', { data: payload });
   }
 
   async getAccountInformation() {
-    this._ensureApiKey();
-
-    const response = await this.client.get('/v1/account', {
-      headers: { 'X-KEY': prospeoApiKey },
-    });
-
-    const data = safeParse(response.data);
-    return assertProspeoResponse(data, response.status);
+    return this.request('get', '/v1/account');
   }
 }
 

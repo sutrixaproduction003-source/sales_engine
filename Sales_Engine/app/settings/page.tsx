@@ -65,7 +65,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-whit">Settings</h1>
+        <h1 className="text-2xl font-semibold text-white">Settings</h1>
         <p className="text-sm text-slate-400">API keys are stored in .env.local and used by the pipeline routes.</p>
       </div>
 
