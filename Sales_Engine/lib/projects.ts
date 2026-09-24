@@ -14,6 +14,8 @@ export interface ProjectRequirements {
   industry?: string;
   categories?: string[];
   jobTitle?: string;
+  /** Decision-maker roles to look for at a business, most senior first. */
+  targetRoles?: string[];
 }
 
 /**
@@ -50,6 +52,7 @@ export const PROJECTS: ProjectConfig[] = [
     description: "Hospitality & property outreach (hotels, resorts, restaurants).",
     requirements: {
       categories: ["Hotels", "Resorts", "Restaurants", "Hospitality Groups", "Property Management"],
+      targetRoles: ["General Manager", "Owner", "Director of Sales", "Revenue Manager", "Front Office Manager"],
     },
     provider: "apollo",
   },
@@ -57,7 +60,9 @@ export const PROJECTS: ProjectConfig[] = [
     id: "general",
     name: "General Sales",
     description: "Open prospecting across any industry or location.",
-    requirements: {},
+    requirements: {
+      targetRoles: ["Owner", "Founder", "CEO", "Director", "Manager"],
+    },
     provider: "apollo",
   },
 ];
@@ -76,6 +81,11 @@ export function getProjectSearchTerms(
   const chosen = selectedCategories.filter((c) => projectCategories.includes(c));
   const terms = [...(chosen.length ? chosen : projectCategories), keyword.trim()].filter(Boolean);
   return Array.from(new Set(terms.map((term) => term.toLowerCase())));
+}
+
+/** Roles to look for at a business for this project (generic defaults otherwise). */
+export function getProjectRoles(project: ProjectConfig | undefined): string[] {
+  return project?.requirements.targetRoles ?? ["Owner", "Founder", "CEO", "Director", "Manager"];
 }
 
 export function getProject(id: string | null | undefined): ProjectConfig | undefined {

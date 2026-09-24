@@ -42,6 +42,12 @@ function businessName(lead: Lead) {
   return lead.company || lead.hotelName || lead.name;
 }
 
+/** First name of the contact when the lead is a person (not just a business). */
+function contactFirstName(lead: Lead): string | null {
+  if (!lead.name || lead.name === businessName(lead) || !lead.jobTitle) return null;
+  return lead.name.split(/\s+/)[0] || null;
+}
+
 /** What we know about the business, as plain facts for the prompt. */
 function leadFacts(lead: Lead): string {
   return [
@@ -51,6 +57,7 @@ function leadFacts(lead: Lead): string {
     typeof lead.googleRating === "number" &&
       `Google rating: ${lead.googleRating} from ${lead.totalReviewsCount ?? "?"} reviews`,
     lead.website && `Website: ${lead.website}`,
+    contactFirstName(lead) && `Contact: ${lead.name}`,
     lead.jobTitle && `Contact role: ${lead.jobTitle}`,
   ]
     .filter(Boolean)
@@ -62,13 +69,15 @@ function templateDraft(lead: Lead, sender: Sender): EmailDraft {
   const place = lead.city || lead.location;
   const opener =
     typeof lead.googleRating === "number" && lead.totalReviewsCount
-      ? `I came across ${name}${place ? ` in ${place}` : ""} on Google Maps — a ${lead.googleRating.toFixed(1)}★ rating from ${lead.totalReviewsCount.toLocaleString("en-US")} reviews says a lot about how you look after your guests.`
+      ? `I came across ${name}${place ? ` in ${place}` : ""} on Google Maps — a ${lead.googleRating.toFixed(1)}★ rating from ${lead.totalReviewsCount.toLocaleString("en-US")} reviews says a lot about the experience you provide.`
       : `I came across ${name}${place ? ` in ${place}` : ""} and wanted to reach out directly.`;
   const pitch =
     sender.pitch ||
     `At ${sender.company || "our company"}, we help businesses like yours grow — I'd love to share a few ideas.`;
 
-  const body = [`Hi ${name} team,`, opener, pitch, "Would you be open to a quick 15-minute call next week?", signature(sender)].join(
+  const firstName = contactFirstName(lead);
+  const greeting = firstName ? `Hi ${firstName},` : `Hi ${name} team,`;
+  const body = [greeting, opener, pitch, "Would you be open to a quick 15-minute call next week?", signature(sender)].join(
     "\n\n"
   );
   return { subject: `Quick idea for ${name}`, body, icebreaker: opener, method: "template" };
@@ -121,7 +130,7 @@ async function aiDraft(lead: Lead, sender: Sender, providers: ChatProvider[]): P
     "Plain text only. 70-120 words. No markdown, no emojis, no placeholders like [Name].",
     "Open with one specific, true observation about the business, grounded ONLY in the facts and website text given — never invent details.",
     "Then connect it to the sender's offer in one or two sentences, and end with a low-pressure question about a short call.",
-    `Greet the business as "Hi <business> team," unless a contact role is given. End with this exact signature:\n${signature(sender)}`,
+    `Greet the contact by first name ("Hi <first name>,") when a contact is given, otherwise "Hi <business> team,". End with this exact signature:\n${signature(sender)}`,
     'Subject: under 8 words, specific, not clickbait. Respond ONLY with JSON: {"subject":"...","body":"..."}',
   ].join(" ");
 

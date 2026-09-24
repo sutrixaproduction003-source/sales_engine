@@ -58,15 +58,18 @@ const toCoordinate = (value) => {
 function normalizePlace(item) {
   if (!item || typeof item !== 'object' || !item.title) return null;
 
+  // Listings often append a slogan: "Apollo Hospitals | Best Hospital in …".
+  const name = String(item.title).split(/\s+\|\s+/)[0].trim() || item.title;
+
   const latitude = toCoordinate(item.location?.lat);
   const longitude = toCoordinate(item.location?.lng);
   const locationText = [item.city, item.state, item.countryCode].filter(Boolean).join(', ');
 
   return {
-    id: item.placeId ? `gmaps-${item.placeId}` : `gmaps-${item.title}-${latitude},${longitude}`,
+    id: item.placeId ? `gmaps-${item.placeId}` : `gmaps-${name}-${latitude},${longitude}`,
     placeId: item.placeId || null,
-    companyName: item.title,
-    hotelName: item.title,
+    companyName: name,
+    hotelName: name,
     fullName: '',
     industry: item.categoryName || first(item.categories) || '',
     categories: cleanList(item.categories),
