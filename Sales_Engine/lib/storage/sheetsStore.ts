@@ -11,6 +11,7 @@ import { getSetting } from "@/lib/appSettings";
 import type { Lead } from "@/lib/leadModel";
 import { HEADERS, SHEET_NAME, leadToRow, rowsToLeads } from "./leadColumns";
 import { getAccessToken, getServiceAccount } from "./googleAuth";
+import { createHash } from "crypto";
 import { LeadStoreError, type LeadStoreDriver } from "./types";
 
 const API = "https://sheets.googleapis.com/v4/spreadsheets";
@@ -73,21 +74,32 @@ async function ensureTab(): Promise<void> {
   });
 }
 
-const state = globalThis as unknown as { __sheetsRowCount?: number };
+const state = globalThis as unknown as { __sheetsRowCount?: number; __sheetsFingerprint?: string | null };
 
-async function read(): Promise<Lead[]> {
-  let values: unknown[][];
+const hash = (values: unknown[][]) => createHash("sha256").update(JSON.stringify(values)).digest("hex");
+
+async function readValues(): Promise<unknown[][]> {
   try {
     const result = await sheetsRequest<{ values?: unknown[][] }>(
       `/values/${encodeURIComponent(SHEET_NAME)}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`
     );
-    values = result.values ?? [];
+    return result.values ?? [];
   } catch (error) {
-    // No "Leads" tab yet: an empty store (the tab is created on first save).
     if (error instanceof LeadStoreError && /Unable to parse range/i.test(error.message)) return [];
     throw error;
   }
+}
+
+/** Hash of the Leads tab as it is right now. */
+async function fingerprint(): Promise<string> {
+  return hash(await readValues());
+}
+
+async function read(): Promise<Lead[]> {
+  // No "Leads" tab yet reads as an empty store (the tab is created on first save).
+  const values = await readValues();
   state.__sheetsRowCount = values.length;
+  state.__sheetsFingerprint = hash(values);
   if (values.length === 0) return [];
   return rowsToLeads(values[0], values.slice(1));
 }
@@ -104,6 +116,7 @@ async function write(leads: Lead[]): Promise<void> {
     body: JSON.stringify({ values: rows }),
   });
   state.__sheetsRowCount = leads.length + 1;
+  state.__sheetsFingerprint = null;
 }
 
 /** Time bucket: the sheet is re-read at most every CACHE_WINDOW_MS. */
@@ -117,6 +130,8 @@ export const sheetsStore: LeadStoreDriver = {
   read,
   write,
   version,
+  fingerprint,
+  lastReadFingerprint: () => state.__sheetsFingerprint ?? null,
 };
 
 /**

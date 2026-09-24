@@ -8,6 +8,14 @@ export interface LeadStoreDriver {
   write(leads: Lead[]): Promise<void>;
   /** Changes when the stored data may have changed (cache key). */
   version(): Promise<string>;
+  /**
+   * For stores people edit directly (Google Sheets): a hash of the stored
+   * table right now, and the hash as of the last read(). Transactions read
+   * fresh and check these before writing, so a save never overwrites an
+   * edit made in the meantime.
+   */
+  fingerprint?(): Promise<string>;
+  lastReadFingerprint?(): string | null;
 }
 
 /**

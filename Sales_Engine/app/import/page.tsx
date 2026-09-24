@@ -33,6 +33,8 @@ interface Summary {
 }
 
 const POLL_MS = 4000;
+/** The backend looks up at most this many companies per run. */
+const LOOKUP_BATCH = 100;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -124,20 +126,25 @@ export default function SalesNavigatorImportPage() {
         if (byQuery.size > 0) {
           setStep("lookup");
           const began = Date.now();
-          setProgress(`Looking up ${byQuery.size} companies on Google Maps…`);
-          let run = await apiCall<PlacesRun>("/api/places/lookup", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ queries: Array.from(byQuery.keys()) }),
-          });
-          while (!run.done) {
-            await sleep(POLL_MS);
-            run = await pollPlacesSearch(run.runId, projectId, { save: false });
-            setProgress(`Looking up ${byQuery.size} companies on Google Maps · ${Math.round((Date.now() - began) / 1000)}s`);
-          }
-
+          const queries = Array.from(byQuery.keys());
           const placeByQuery = new Map<string, ScrapedPlace>();
-          for (const place of run.places) if (place.searchTerm) placeByQuery.set(place.searchTerm, place);
+          // One run per batch of companies, so large imports are looked up in full.
+          for (let from = 0; from < queries.length; from += LOOKUP_BATCH) {
+            const batch = queries.slice(from, from + LOOKUP_BATCH);
+            const label = queries.length > LOOKUP_BATCH ? ` (batch ${from / LOOKUP_BATCH + 1} of ${Math.ceil(queries.length / LOOKUP_BATCH)})` : "";
+            setProgress(`Looking up ${byQuery.size} companies${label}…`);
+            let run = await apiCall<PlacesRun>("/api/places/lookup", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ queries: batch }),
+            });
+            while (!run.done) {
+              await sleep(POLL_MS);
+              run = await pollPlacesSearch(run.runId, projectId, { save: false });
+              setProgress(`Looking up ${byQuery.size} companies${label} · ${Math.round((Date.now() - began) / 1000)}s`);
+            }
+            for (const place of run.places) if (place.searchTerm) placeByQuery.set(place.searchTerm, place);
+          }
           const matches = Array.from(byQuery.entries()).map(([query, entry]) => ({
             ...entry,
             place: placeByQuery.get(query) ?? null,
@@ -310,7 +317,7 @@ export default function SalesNavigatorImportPage() {
               </div>
               <label className="flex items-center gap-2 text-sm text-slate-300">
                 <input type="checkbox" checked={lookupCompanies} onChange={(e) => setLookupCompanies(e.target.checked)} disabled={busy} />
-                Find each company&apos;s website, email &amp; location (Google Maps)
+                Find each company&apos;s website, email &amp; location
               </label>
               {apolloReady ? (
                 <>
@@ -373,7 +380,7 @@ export default function SalesNavigatorImportPage() {
           <ul className="space-y-1 text-sm text-slate-300">
             {summary.companies !== undefined && (
               <li>
-                Companies found on Google Maps: {summary.companiesFound ?? 0} of {summary.companies} ·{" "}
+                Companies found: {summary.companiesFound ?? 0} of {summary.companies} ·{" "}
                 {summary.withEmail ?? 0} leads now have an email address
               </li>
             )}

@@ -45,7 +45,17 @@ export async function POST(request: Request) {
           source: SOURCE,
         };
 
-        const existing = tx.find((l) => l.source === SOURCE && l.name === name && l.company === company);
+        // Same person = same name and company, and the same title and location
+        // (two colleagues can share a name; merging them would overwrite one).
+        const same = (a: string | null, b: string | null) => (a ?? "").toLowerCase() === (b ?? "").toLowerCase();
+        const existing = tx.find(
+          (l) =>
+            l.source === SOURCE &&
+            l.name === name &&
+            l.company === company &&
+            same(l.jobTitle, data.jobTitle) &&
+            (!l.location || !location || same(l.location, location))
+        );
         if (existing) {
           tx.update(existing.id, data);
           return { key: lead.key, id: existing.id, created: false };

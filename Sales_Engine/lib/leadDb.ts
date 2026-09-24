@@ -88,7 +88,27 @@ export interface LeadTransaction {
  */
 export function transaction<T>(fn: (tx: LeadTransaction) => T, driver: LeadStoreDriver = activeStore()): Promise<T> {
   return serialize(async () => {
-    const leads = (await load(driver)).map(clone);
+    // Stores edited by people too (Google Sheets) are read fresh and checked
+    // before saving; if the table changed meanwhile, redo on the new data.
+    const guarded = Boolean(driver.fingerprint && driver.lastReadFingerprint);
+    for (let attempt = 0; ; attempt++) {
+      const outcome = await attemptTransaction(fn, driver, guarded);
+      if (outcome.done) return outcome.result;
+      if (attempt >= 2) {
+        throw new LeadStoreError("The Google Sheet kept changing while saving. Try again in a moment.", "busy");
+      }
+    }
+  });
+}
+
+async function attemptTransaction<T>(
+  fn: (tx: LeadTransaction) => T,
+  driver: LeadStoreDriver,
+  guarded: boolean
+): Promise<{ done: true; result: T } | { done: false }> {
+  {
+    const leads = (guarded ? await driver.read() : await load(driver)).map(clone);
+    const readAs = guarded ? driver.lastReadFingerprint!() : null;
     let dirty = false;
     let nextId = leads.reduce((max, l) => Math.max(max, l.id), 0) + 1;
 
@@ -120,11 +140,12 @@ export function transaction<T>(fn: (tx: LeadTransaction) => T, driver: LeadStore
 
     const result = fn(tx);
     if (dirty) {
+      if (guarded && (await driver.fingerprint!()) !== readAs) return { done: false };
       await driver.write(leads);
       state.cache.set(driver.id, { version: await driver.version(), leads });
     }
-    return result;
-  });
+    return { done: true, result };
+  }
 }
 
 export interface ListOptions {

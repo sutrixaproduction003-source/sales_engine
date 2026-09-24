@@ -204,13 +204,17 @@ async function runFallback(request, job) {
   return osm(request.queries);
 }
 
-/** Start a fallback search in the background; returns its run id. */
-function startOsmJob(request, reason) {
+/**
+ * Start a fallback search in the background; returns its run id.
+ * `basePlaces`: results Google Maps already found (for a partial lookup).
+ */
+function startOsmJob(request, reason, basePlaces = []) {
   const runId = `fb-${Date.now().toString(36)}-${++osmJobCount}`;
   const job = {
     status: 'RUNNING',
     startedAt: new Date().toISOString(),
     reason,
+    basePlaces,
     source: apolloAvailable() ? 'apollo' : 'openstreetmap',
   };
   remember(osmJobs, runId, job);
@@ -230,12 +234,16 @@ function osmJobResult(runId, job) {
     status: job.status,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt || null,
-    source: job.source,
+    source: job.basePlaces?.length ? 'google_maps' : job.source,
     fallbackReason: job.apolloNote ? `${job.reason} · ${job.apolloNote}` : job.reason,
   };
-  if (job.status === 'FAILED') throw job.error;
+  if (job.status === 'FAILED') {
+    // Keep what Google Maps found when only the fallback for the rest failed.
+    if (job.basePlaces?.length) return { ...base, done: true, places: job.basePlaces };
+    throw job.error;
+  }
   if (job.status !== FINISHED_OK) return { ...base, done: false, places: [] };
-  return { ...base, done: true, places: job.places };
+  return { ...base, done: true, places: [...(job.basePlaces || []), ...job.places] };
 }
 
 /** Why Apify can't be used, in words the UI can show. */
@@ -267,9 +275,13 @@ const MAX_LOOKUPS = 100;
  * result's `searchTerm` is the query it answers.
  */
 async function startPlacesLookup(queries) {
-  const list = cleanList(queries).slice(0, MAX_LOOKUPS);
+  const list = cleanList(queries);
   if (list.length === 0) {
     throw createError('At least one business to look up is required.', 'INVALID_PLACES_INPUT', 400);
+  }
+  // Never drop companies silently: callers split larger lists into batches.
+  if (list.length > MAX_LOOKUPS) {
+    throw createError(`At most ${MAX_LOOKUPS} businesses per lookup (got ${list.length}).`, 'INVALID_PLACES_INPUT', 400);
   }
   const input = {
     searchStringsArray: list,
@@ -320,6 +332,19 @@ async function getPlacesSearch(runId) {
   if (places.length === 0 && pending && pending.request.kind === 'search') {
     pending.osmRunId = startOsmJob(pending.request, 'Google Maps found no businesses');
     return { ...osmJobResult(pending.osmRunId, osmJobs.get(pending.osmRunId)), runId };
+  }
+  // Company lookup: businesses Google Maps didn't find go to the fallback sources.
+  if (pending && pending.request.kind === 'lookup') {
+    const found = new Set(places.map((p) => String(p.searchTerm || '').toLowerCase()));
+    const missing = pending.request.queries.filter((q) => !found.has(q.toLowerCase()));
+    if (missing.length) {
+      pending.osmRunId = startOsmJob(
+        { kind: 'lookup', queries: missing },
+        `${missing.length} of ${pending.request.queries.length} businesses not found on Google Maps`,
+        places
+      );
+      return { ...osmJobResult(pending.osmRunId, osmJobs.get(pending.osmRunId)), runId };
+    }
   }
 
   return { ...base, done: true, places };

@@ -17,7 +17,7 @@
  */
 
 export interface SalesNavLead {
-  /** Stable key within one paste (name + account). */
+  /** Stable key within one paste (name + account + title + location: people can share a name). */
   key: string;
   name: string;
   jobTitle: string;
@@ -144,7 +144,7 @@ function parseBlock(block: string[]): SalesNavLead | null {
   if (!name || name.split(" ").length > 6 || /\d/.test(name)) return null;
 
   return {
-    key: `${name}|${company}`.toLowerCase(),
+    key: `${name}|${company}|${stripEllipsis(jobTitle)}|${location}`.toLowerCase(),
     name,
     jobTitle: stripEllipsis(jobTitle),
     company: stripEllipsis(company),
