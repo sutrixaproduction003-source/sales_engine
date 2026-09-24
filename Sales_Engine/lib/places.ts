@@ -49,6 +49,10 @@ export interface PlacesRun {
   done: boolean;
   places: ScrapedPlace[];
   startedAt?: string;
+  /** Where results come from: Google Maps (Apify), or the free OpenStreetMap fallback. */
+  source?: "google_maps" | "openstreetmap";
+  /** Why the fallback was used, e.g. "Apify is out of credit". */
+  fallbackReason?: string | null;
   /** Present once done: how many places were stored in the pipeline. */
   saved?: number;
   updated?: number;

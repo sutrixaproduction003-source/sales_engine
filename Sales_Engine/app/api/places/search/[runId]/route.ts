@@ -16,12 +16,12 @@ function toLeadData(place: ScrapedPlace, project: string | null) {
     website: place.companyWebsite || "",
     googlePlaceId: place.placeId,
     project,
-    source: "google_maps",
+    source: place.source || "google_maps",
   };
 }
 
 /**
- * Store scraped places, deduplicated by Google place id. Re-scraping refreshes
+ * Store scraped places, deduplicated by place id (Google, or "osm:node/…"). Re-scraping refreshes
  * the business details but never resets a lead's pipeline status or project.
  */
 function savePlaces(places: ScrapedPlace[], project: string | null) {
@@ -67,6 +67,8 @@ export async function GET(request: Request, { params }: { params: { runId: strin
     status: result.status,
     done: result.done,
     startedAt: result.startedAt,
+    source: result.source,
+    fallbackReason: result.fallbackReason ?? null,
     places: result.places ?? [],
   };
   // `save=0`: a lookup whose results are attached to existing leads instead.

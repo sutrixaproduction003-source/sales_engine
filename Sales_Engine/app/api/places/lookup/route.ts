@@ -18,5 +18,5 @@ export async function POST(request: Request) {
 
   const result = await callBackend<PlacesRun>(() => postToBackend("/api/places/lookup", { queries }));
   if (result instanceof NextResponse) return result;
-  return NextResponse.json({ runId: result.runId, status: result.status, done: false, places: [] }, { status: 202 });
+  return NextResponse.json({ runId: result.runId, status: result.status, done: false, places: [], source: result.source, fallbackReason: result.fallbackReason ?? null }, { status: 202 });
 }

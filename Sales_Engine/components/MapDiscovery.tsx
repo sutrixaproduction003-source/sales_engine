@@ -144,6 +144,7 @@ export function MapDiscovery() {
 
   const { status, run, places, error, elapsed, search, cancel } = usePlacesSearch();
   const busy = status === "starting" || status === "scraping";
+  const fromOsm = run?.source === "openstreetmap";
   const drafts = useAutoDraft();
 
   // Every scrape flows straight into drafting: businesses with an email get a
@@ -290,8 +291,23 @@ export function MapDiscovery() {
         {busy && (
           <span className="flex items-center gap-2 text-sky-300">
             <Loader2 className="h-4 w-4 animate-spin" />
-            {status === "starting" ? "Starting scrape…" : "Scraping Google Maps"} · {formatElapsed(elapsed)}
-            <span className="text-xs text-slate-500">(usually 1–3 minutes)</span>
+            {status === "starting" ? "Starting scrape…" : fromOsm ? "Searching OpenStreetMap" : "Scraping Google Maps"} ·{" "}
+            {formatElapsed(elapsed)}
+            <span className="text-xs text-slate-500">({fromOsm ? "usually under a minute" : "usually 1–3 minutes"})</span>
+          </span>
+        )}
+        {fromOsm && status !== "idle" && status !== "error" && (
+          <span className="basis-full text-xs text-amber-300/90">
+            {run?.fallbackReason || "Google Maps unavailable"} — using free OpenStreetMap data instead (no ratings; fewer
+            emails and phones).{" "}
+            <a
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-slate-400 underline hover:text-slate-200"
+            >
+              © OpenStreetMap contributors
+            </a>
           </span>
         )}
         {status === "error" && (

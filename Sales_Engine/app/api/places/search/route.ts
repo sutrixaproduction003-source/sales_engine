@@ -37,5 +37,5 @@ export async function POST(request: Request) {
   );
   if (result instanceof NextResponse) return result;
 
-  return NextResponse.json({ runId: result.runId, status: result.status, done: false, places: [] }, { status: 202 });
+  return NextResponse.json({ runId: result.runId, status: result.status, done: false, places: [], source: result.source, fallbackReason: result.fallbackReason ?? null }, { status: 202 });
 }

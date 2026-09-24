@@ -105,10 +105,10 @@ describe('/api/places/search', () => {
     expect(res.body.places[0].latitude).toBe(15.2517);
   });
 
-  test('GET maps a failed run to 502', async () => {
-    axios.request.mockResolvedValue({ data: { data: { id: 'run-1', status: 'FAILED', defaultDatasetId: 'ds-1' } } });
+  test('GET maps a failed run it has no search for to 502', async () => {
+    axios.request.mockResolvedValue({ data: { data: { id: 'run-old', status: 'FAILED', defaultDatasetId: 'ds-1' } } });
 
-    const res = await request(app).get('/api/places/search/run-1');
+    const res = await request(app).get('/api/places/search/run-old');
 
     expect(res.statusCode).toBe(502);
     expect(res.body.error.code).toBe('SCRAPER_FAILED');

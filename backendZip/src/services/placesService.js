@@ -6,11 +6,17 @@
  *
  * Runs are asynchronous: start a run, then poll it. Scrapes routinely take
  * longer than a serverless request is allowed to live.
+ *
+ * Fallback: when Apify is not configured, out of credit, or a run fails, the
+ * same search runs on OpenStreetMap instead (free, keyless — see osmPlaces).
+ * OSM jobs use the same start/poll interface with "osm-" run ids.
  */
 
 const { startActorRun, getActorRun, getDatasetItems } = require('./apifyScrapers');
 const { createError } = require('../utils/errors');
 const { apifyScrapeContacts } = require('../config/env');
+const { searchOsm, lookupOsm } = require('./osmPlaces');
+const logger = require('../utils/logger');
 
 const ACTOR = 'compass~crawler-google-places';
 const DEFAULT_PLACES_PER_TERM = 20;
@@ -132,6 +138,85 @@ function normalizePlace(item) {
   };
 }
 
+/** Give an OSM place the same email fields as a Google Maps place. */
+function withBusinessEmail({ rawEmails, ...place }) {
+  return {
+    ...place,
+    email: businessEmail(rawEmails, place.companyWebsite),
+    emails: cleanList(rawEmails)
+      .map((e) => e.toLowerCase())
+      .filter((e) => belongsToBusiness(e, place.companyWebsite)),
+  };
+}
+
+// ---------- OpenStreetMap fallback jobs (in-process) ----------
+
+const OSM_JOB_TTL_MS = 60 * 60 * 1000;
+const osmJobs = new Map();
+/** Apify run id → the search it was started for, to re-run on OSM if it fails. */
+const apifyRequests = new Map();
+let osmJobCount = 0;
+
+function remember(map, key, value) {
+  map.set(key, Object.assign(value, { at: Date.now() }));
+  for (const [k, v] of map) if (Date.now() - v.at > OSM_JOB_TTL_MS) map.delete(k);
+}
+
+/** Start an OSM search in the background; returns its run id. */
+function startOsmJob(request, reason) {
+  const runId = `osm-${Date.now().toString(36)}-${++osmJobCount}`;
+  const job = { status: 'RUNNING', startedAt: new Date().toISOString(), reason };
+  remember(osmJobs, runId, job);
+  const work =
+    request.kind === 'lookup'
+      ? lookupOsm(request.queries, withBusinessEmail)
+      : searchOsm(
+          { location: request.locationQuery, searchTerms: request.searchStringsArray, perTerm: request.maxCrawledPlacesPerSearch },
+          withBusinessEmail
+        );
+  work
+    .then((places) => Object.assign(job, { status: 'SUCCEEDED', places }))
+    .catch((error) => Object.assign(job, { status: 'FAILED', error }))
+    .finally(() => (job.finishedAt = new Date().toISOString()));
+  logger.info(`Places search on OpenStreetMap (${reason})`);
+  return runId;
+}
+
+function osmJobResult(runId, job) {
+  if (!job) throw createError('Search expired — start it again.', 'SCRAPER_RUN_NOT_FOUND', 404);
+  const base = {
+    runId,
+    status: job.status,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt || null,
+    source: 'openstreetmap',
+    fallbackReason: job.reason,
+  };
+  if (job.status === 'FAILED') throw job.error;
+  if (job.status !== FINISHED_OK) return { ...base, done: false, places: [] };
+  return { ...base, done: true, places: job.places };
+}
+
+/** Why Apify can't be used, in words the UI can show. */
+function fallbackReason(error) {
+  if (error.code === 'SCRAPER_NOT_CONFIGURED') return 'Apify is not connected';
+  if (/402|credit|usage|limit/i.test(error.message)) return 'Apify is out of credit';
+  return 'Google Maps scraping failed';
+}
+
+/** Start on Apify; if Apify can't take the job, run it on OpenStreetMap. */
+async function startWithFallback(input, request) {
+  try {
+    const run = await startActorRun(ACTOR, input);
+    remember(apifyRequests, run.id, { request });
+    return { runId: run.id, status: run.status, source: 'google_maps' };
+  } catch (error) {
+    if (error.code === 'INVALID_PLACES_INPUT') throw error;
+    const reason = fallbackReason(error);
+    return { runId: startOsmJob(request, reason), status: 'RUNNING', source: 'openstreetmap', fallbackReason: reason };
+  }
+}
+
 const MAX_LOOKUPS = 100;
 
 /**
@@ -144,19 +229,19 @@ async function startPlacesLookup(queries) {
   if (list.length === 0) {
     throw createError('At least one business to look up is required.', 'INVALID_PLACES_INPUT', 400);
   }
-  const run = await startActorRun(ACTOR, {
+  const input = {
     searchStringsArray: list,
     maxCrawledPlacesPerSearch: 1,
     language: 'en',
     skipClosedPlaces: false,
     scrapeContacts: apifyScrapeContacts,
-  });
-  return { runId: run.id, status: run.status, queries: list.length };
+  };
+  return { ...(await startWithFallback(input, { kind: 'lookup', queries: list })), queries: list.length };
 }
 
 async function startPlacesSearch(params) {
-  const run = await startActorRun(ACTOR, buildPlacesInput(params));
-  return { runId: run.id, status: run.status };
+  const input = buildPlacesInput(params);
+  return startWithFallback(input, { kind: 'search', ...input });
 }
 
 /**
@@ -164,10 +249,20 @@ async function startPlacesSearch(params) {
  * the normalized places (deduplicated by place id).
  */
 async function getPlacesSearch(runId) {
+  if (osmJobs.has(runId)) return osmJobResult(runId, osmJobs.get(runId));
+
+  // A failed Apify run continues on OSM under the same run id.
+  const pending = apifyRequests.get(runId);
+  if (pending?.osmRunId) return { ...osmJobResult(pending.osmRunId, osmJobs.get(pending.osmRunId)), runId };
+
   const run = await getActorRun(runId);
-  const base = { runId: run.id, status: run.status, startedAt: run.startedAt, finishedAt: run.finishedAt };
+  const base = { runId: run.id, status: run.status, startedAt: run.startedAt, finishedAt: run.finishedAt, source: 'google_maps' };
 
   if (FINISHED_FAILED.includes(run.status)) {
+    if (pending) {
+      pending.osmRunId = startOsmJob(pending.request, `Google Maps run ${run.status.toLowerCase()}`);
+      return { ...osmJobResult(pending.osmRunId, osmJobs.get(pending.osmRunId)), runId };
+    }
     throw createError(`Google Maps scrape finished with status ${run.status}.`, 'SCRAPER_FAILED', 502);
   }
   if (run.status !== FINISHED_OK) {
