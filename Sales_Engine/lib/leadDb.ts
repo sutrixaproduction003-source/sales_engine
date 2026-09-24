@@ -1,92 +1,20 @@
 /**
- * Lead storage in a local Excel workbook (default: data/leads.xlsx, override
- * with LEADS_XLSX_PATH). Server-side only.
+ * The lead database. Server-side only.
  *
- * - The workbook is the source of truth: open it in Excel at any time. Edits
- *   made there (while the app is not writing) are picked up on the next read.
- * - Writes are serialized within the server process and written atomically
- *   (temp file + rename), so a crash never leaves a half-written workbook.
- * - Excel locks files it has open on Windows; saving then fails with a
- *   LeadStoreBusyError asking the user to close the file.
- *
- * Needs a persistent disk: it will not keep data on serverless hosts such as
- * Netlify or Vercel.
+ * Leads live in either a local Excel workbook or a Google Sheet — chosen in
+ * Settings (LEAD_STORE = "excel" | "sheets") and switchable at any time. The
+ * whole table is read into memory, changed inside a transaction, and written
+ * back in one save. Writes are serialized within the server process.
  */
 
-import { promises as fs } from "fs";
-import path from "path";
-import ExcelJS from "exceljs";
-import {
-  LeadStatus,
-  type Lead,
-  type LeadInput,
-  type LeadUpdate,
-} from "@/lib/leadModel";
+import { getSetting } from "@/lib/appSettings";
+import { type Lead, type LeadInput, type LeadStatus, type LeadUpdate } from "@/lib/leadModel";
+import { toLead } from "@/lib/storage/leadColumns";
+import { excelStore } from "@/lib/storage/excelStore";
+import { sheetsStore } from "@/lib/storage/sheetsStore";
+import { LeadStoreError, type LeadStoreDriver } from "@/lib/storage/types";
 
-const FILE_PATH = process.env.LEADS_XLSX_PATH || path.join(process.cwd(), "data", "leads.xlsx");
-const SHEET_NAME = "Leads";
-
-type Kind = "string" | "number" | "int" | "date";
-
-/** Column order in the sheet: the fields people read first come first. */
-const COLUMNS: { key: keyof Lead; kind: Kind; width: number }[] = [
-  { key: "id", kind: "int", width: 6 },
-  { key: "status", kind: "string", width: 13 },
-  { key: "name", kind: "string", width: 30 },
-  { key: "company", kind: "string", width: 26 },
-  { key: "email", kind: "string", width: 30 },
-  { key: "phone", kind: "string", width: 18 },
-  { key: "website", kind: "string", width: 30 },
-  { key: "industry", kind: "string", width: 18 },
-  { key: "exactAddress", kind: "string", width: 40 },
-  { key: "city", kind: "string", width: 14 },
-  { key: "state", kind: "string", width: 12 },
-  { key: "location", kind: "string", width: 20 },
-  { key: "project", kind: "string", width: 12 },
-  { key: "source", kind: "string", width: 13 },
-  { key: "googleRating", kind: "number", width: 8 },
-  { key: "totalReviewsCount", kind: "int", width: 9 },
-  { key: "googleMapsLink", kind: "string", width: 30 },
-  { key: "latitude", kind: "number", width: 11 },
-  { key: "longitude", kind: "number", width: 11 },
-  { key: "jobTitle", kind: "string", width: 20 },
-  { key: "linkedinUrl", kind: "string", width: 28 },
-  { key: "instagramLink", kind: "string", width: 28 },
-  { key: "facebookLink", kind: "string", width: 28 },
-  { key: "hotelName", kind: "string", width: 24 },
-  { key: "brandType", kind: "string", width: 14 },
-  { key: "propertySizeCategory", kind: "string", width: 14 },
-  { key: "googleBusinessLink", kind: "string", width: 28 },
-  { key: "tripAdvisorLink", kind: "string", width: 28 },
-  { key: "bookingComLink", kind: "string", width: 28 },
-  { key: "makeMyTripLink", kind: "string", width: 28 },
-  { key: "sentimentScore", kind: "number", width: 10 },
-  { key: "googlePlaceId", kind: "string", width: 30 },
-  { key: "businessType", kind: "string", width: 16 },
-  { key: "classification", kind: "string", width: 16 },
-  { key: "decisionMakerTier", kind: "string", width: 10 },
-  { key: "relevanceScore", kind: "int", width: 9 },
-  { key: "intentScore", kind: "int", width: 9 },
-  { key: "buyingPowerScore", kind: "int", width: 9 },
-  { key: "intentSignals", kind: "string", width: 30 },
-  { key: "scrapedContext", kind: "string", width: 40 },
-  { key: "icebreaker", kind: "string", width: 40 },
-  { key: "emailSubject", kind: "string", width: 40 },
-  { key: "emailBody", kind: "string", width: 60 },
-  { key: "draftMethod", kind: "string", width: 10 },
-  { key: "sentAt", kind: "date", width: 20 },
-  { key: "sentMessageId", kind: "string", width: 30 },
-  { key: "sendError", kind: "string", width: 30 },
-  { key: "hubspotContactId", kind: "string", width: 14 },
-  { key: "hubspotCompanyId", kind: "string", width: 14 },
-  { key: "hubspotSyncStatus", kind: "string", width: 12 },
-  { key: "hubspotSyncedAt", kind: "date", width: 20 },
-  { key: "hubspotSyncError", kind: "string", width: 30 },
-  { key: "createdAt", kind: "date", width: 20 },
-  { key: "updatedAt", kind: "date", width: 20 },
-];
-
-const STATUSES = Object.values(LeadStatus) as string[];
+export { LeadStoreError };
 
 export class DuplicateLeadError extends Error {
   constructor(message = "A lead with the same email + website or Google place already exists.") {
@@ -95,153 +23,35 @@ export class DuplicateLeadError extends Error {
   }
 }
 
-export class LeadStoreBusyError extends Error {
-  constructor() {
-    super(`Could not save leads: ${path.basename(FILE_PATH)} is open in another program (e.g. Excel). Close it and try again.`);
-    this.name = "LeadStoreBusyError";
-  }
+export type LeadStoreId = LeadStoreDriver["id"];
+
+/** The store currently selected in Settings. */
+export function activeStore(): LeadStoreDriver {
+  return getSetting("LEAD_STORE") === "sheets" ? sheetsStore : excelStore;
 }
 
-// ---------- cell <-> value conversion ----------
-
-function cellText(value: ExcelJS.CellValue): string | null {
-  if (value === null || value === undefined) return null;
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === "object") {
-    if ("richText" in value) return value.richText.map((part) => part.text).join("");
-    if ("text" in value) return String(value.text);
-    if ("result" in value) return value.result === undefined ? null : String(value.result);
-    return null;
-  }
-  const text = String(value).trim();
-  return text === "" ? null : text;
-}
-
-function fromCell(value: ExcelJS.CellValue, kind: Kind): unknown {
-  if (kind === "date") {
-    if (value instanceof Date) return value;
-    const text = cellText(value);
-    const date = text ? new Date(text) : null;
-    return date && !Number.isNaN(date.getTime()) ? date : null;
-  }
-  if (kind === "number" || kind === "int") {
-    const n = typeof value === "number" ? value : Number(cellText(value));
-    if (!Number.isFinite(n) || cellText(value) === null) return null;
-    return kind === "int" ? Math.round(n) : n;
-  }
-  return cellText(value);
-}
-
-/** Turn a sheet row into a Lead, filling defaults for blank cells. */
-function toLead(raw: Record<string, unknown>, fallbackId: number): Lead {
-  const now = new Date();
-  const status = String(raw.status ?? "").toUpperCase();
-  return {
-    ...(raw as Partial<Lead>),
-    id: typeof raw.id === "number" && raw.id > 0 ? raw.id : fallbackId,
-    name: (raw.name as string) ?? "",
-    website: (raw.website as string) ?? "",
-    status: (STATUSES.includes(status) ? status : LeadStatus.PENDING) as LeadStatus,
-    relevanceScore: (raw.relevanceScore as number) ?? 0,
-    intentScore: (raw.intentScore as number) ?? 0,
-    buyingPowerScore: (raw.buyingPowerScore as number) ?? 0,
-    createdAt: (raw.createdAt as Date) ?? now,
-    updatedAt: (raw.updatedAt as Date) ?? now,
-  } as Lead;
-}
-
-// ---------- file I/O ----------
-
-async function readWorkbook(): Promise<Lead[]> {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(FILE_PATH);
-  const sheet = workbook.getWorksheet(SHEET_NAME) ?? workbook.worksheets[0];
-  if (!sheet) return [];
-
-  // Map header text → column number, so reordered/extra columns still work.
-  const headerIndex = new Map<string, number>();
-  sheet.getRow(1).eachCell((cell, col) => {
-    const header = cellText(cell.value);
-    if (header) headerIndex.set(header, col);
-  });
-
-  const rows: Record<string, unknown>[] = [];
-  sheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-    const raw: Record<string, unknown> = {};
-    for (const column of COLUMNS) {
-      const col = headerIndex.get(column.key);
-      if (col) raw[column.key] = fromCell(row.getCell(col).value, column.kind);
-    }
-    if (raw.name || raw.email || raw.website) rows.push(raw);
-  });
-
-  // Rows added by hand in Excel may have no (or a duplicate) id: give them fresh ones.
-  let nextId = rows.reduce((max, r) => (typeof r.id === "number" && r.id > max ? r.id : max), 0) + 1;
-  const seen = new Set<number>();
-  return rows.map((raw) => {
-    const id = typeof raw.id === "number" && raw.id > 0 && !seen.has(raw.id) ? raw.id : nextId++;
-    seen.add(id);
-    return toLead({ ...raw, id }, id);
-  });
-}
-
-async function writeWorkbook(leads: Lead[]): Promise<void> {
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Sales Engine";
-  const sheet = workbook.addWorksheet(SHEET_NAME, { views: [{ state: "frozen", ySplit: 1 }] });
-  sheet.columns = COLUMNS.map((c) => ({ header: c.key, key: c.key, width: c.width }));
-  for (const lead of leads) {
-    sheet.addRow(Object.fromEntries(COLUMNS.map((c) => [c.key, lead[c.key] ?? null])));
-  }
-
-  const header = sheet.getRow(1);
-  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
-  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: COLUMNS.length } };
-  for (const column of COLUMNS) {
-    if (column.kind === "date") sheet.getColumn(column.key).numFmt = "yyyy-mm-dd hh:mm";
-  }
-
-  await fs.mkdir(path.dirname(FILE_PATH), { recursive: true });
-  const temp = `${FILE_PATH}.${process.pid}.tmp`;
-  try {
-    await workbook.xlsx.writeFile(temp);
-    await fs.rename(temp, FILE_PATH);
-  } catch (error) {
-    await fs.rm(temp, { force: true }).catch(() => undefined);
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "EBUSY" || code === "EPERM" || code === "EACCES") throw new LeadStoreBusyError();
-    throw error;
-  }
+export function storeById(id: LeadStoreId): LeadStoreDriver {
+  return id === "sheets" ? sheetsStore : excelStore;
 }
 
 // ---------- in-process cache + write queue ----------
 
 interface StoreState {
-  leads: Lead[] | null;
-  mtimeMs: number;
+  cache: Map<string, { version: string; leads: Lead[] }>;
   queue: Promise<unknown>;
 }
 
 // Shared across route bundles and hot reloads in the same server process.
-const globalStore = globalThis as unknown as { __leadStore?: StoreState };
-const state: StoreState = (globalStore.__leadStore ??= { leads: null, mtimeMs: -1, queue: Promise.resolve() });
+const globalStore = globalThis as unknown as { __leadDb?: StoreState };
+const state: StoreState = (globalStore.__leadDb ??= { cache: new Map(), queue: Promise.resolve() });
 
-async function load(): Promise<Lead[]> {
-  let mtimeMs: number;
-  try {
-    mtimeMs = (await fs.stat(FILE_PATH)).mtimeMs;
-  } catch {
-    state.leads = [];
-    state.mtimeMs = -1;
-    return state.leads;
-  }
-  if (!state.leads || mtimeMs !== state.mtimeMs) {
-    state.leads = await readWorkbook();
-    state.mtimeMs = mtimeMs;
-  }
-  return state.leads;
+async function load(driver: LeadStoreDriver): Promise<Lead[]> {
+  const version = await driver.version();
+  const cached = state.cache.get(driver.id);
+  if (cached && cached.version === version) return cached.leads;
+  const leads = await driver.read();
+  state.cache.set(driver.id, { version, leads });
+  return leads;
 }
 
 function serialize<T>(fn: () => Promise<T>): Promise<T> {
@@ -276,9 +86,9 @@ export interface LeadTransaction {
  * Run several reads/writes against one consistent snapshot and save once at
  * the end. Nothing is saved if `fn` throws.
  */
-export function transaction<T>(fn: (tx: LeadTransaction) => T): Promise<T> {
+export function transaction<T>(fn: (tx: LeadTransaction) => T, driver: LeadStoreDriver = activeStore()): Promise<T> {
   return serialize(async () => {
-    const leads = (await load()).map(clone);
+    const leads = (await load(driver)).map(clone);
     let dirty = false;
     let nextId = leads.reduce((max, l) => Math.max(max, l.id), 0) + 1;
 
@@ -310,9 +120,8 @@ export function transaction<T>(fn: (tx: LeadTransaction) => T): Promise<T> {
 
     const result = fn(tx);
     if (dirty) {
-      await writeWorkbook(leads);
-      state.leads = leads;
-      state.mtimeMs = (await fs.stat(FILE_PATH)).mtimeMs;
+      await driver.write(leads);
+      state.cache.set(driver.id, { version: await driver.version(), leads });
     }
     return result;
   });
@@ -325,14 +134,16 @@ export interface ListOptions {
   newestFirst?: boolean;
 }
 
+const snapshot = () => serialize(() => load(activeStore()));
+
 export async function listLeads({ where, limit, newestFirst }: ListOptions = {}): Promise<Lead[]> {
-  let leads = (await serialize(load)).filter((lead) => (where ? where(lead) : true));
+  let leads = (await snapshot()).filter((lead) => (where ? where(lead) : true));
   if (newestFirst) leads = [...leads].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   return (limit ? leads.slice(0, limit) : leads).map(clone);
 }
 
 export async function getLead(id: number): Promise<Lead | null> {
-  const lead = (await serialize(load)).find((l) => l.id === id);
+  const lead = (await snapshot()).find((l) => l.id === id);
   return lead ? clone(lead) : null;
 }
 
@@ -342,12 +153,37 @@ export const updateLead = (id: number, patch: LeadUpdate) => transaction((tx) =>
 
 export async function countLeadsByStatus(): Promise<{ total: number } & Record<LeadStatus, number>> {
   const counts = { total: 0, PENDING: 0, SCRAPED: 0, PERSONALIZED: 0, SYNCED: 0, REJECTED: 0 };
-  for (const lead of await serialize(load)) {
+  for (const lead of await snapshot()) {
     counts.total++;
     counts[lead.status]++;
   }
   return counts;
 }
 
-/** Absolute path of the workbook (shown in the UI / logs). */
-export const LEADS_FILE_PATH = FILE_PATH;
+/** Number of leads in a store (for Settings / connection tests). */
+export async function countLeads(id: LeadStoreId): Promise<number> {
+  return (await serialize(() => load(storeById(id)))).length;
+}
+
+/**
+ * Copy every lead from one store into another (e.g. Excel → Google Sheets
+ * when switching). Refuses to overwrite a store that already has leads
+ * unless `overwrite` is set.
+ */
+export async function copyLeads(from: LeadStoreId, to: LeadStoreId, { overwrite = false } = {}): Promise<number> {
+  if (from === to) throw new LeadStoreError("Choose two different stores.", "config");
+  return serialize(async () => {
+    const source = await load(storeById(from));
+    const target = storeById(to);
+    const existing = await load(target);
+    if (existing.length > 0 && !overwrite) {
+      throw new LeadStoreError(
+        `The ${target.label} already has ${existing.length} leads. Copying would replace them — confirm to overwrite.`,
+        "config"
+      );
+    }
+    await target.write(source);
+    state.cache.set(target.id, { version: await target.version(), leads: source.map(clone) });
+    return source.length;
+  });
+}

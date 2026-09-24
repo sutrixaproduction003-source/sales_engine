@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { CheckCircle2, ExternalLink, KeyRound, Mail, Send, UserRound } from "lucide-react";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import { apiCall } from "@/lib/api";
+import { HubSpotSettings } from "@/components/settings/HubSpotSettings";
+import { StorageSettings } from "@/components/settings/StorageSettings";
 
 type Key =
   | "GMAIL_USER"
@@ -14,15 +16,19 @@ type Key =
   | "DEEPSEEK_API_KEY"
   | "GROQ_API_KEY"
   | "APIFY_TOKEN"
-  | "HUBSPOT_ACCESS_TOKEN";
+  | "APOLLO_API_KEY";
 
 type SettingsData = { values: Record<Key, string>; configured: Record<Key, boolean> };
 
 const API_KEYS: { key: Key; label: string; hint: string }[] = [
+  {
+    key: "APOLLO_API_KEY",
+    label: "Apollo.io",
+    hint: "Finds decision-makers at a business and their work emails (Discovery, Find missing emails). 1 credit per email found",
+  },
   { key: "DEEPSEEK_API_KEY", label: "DeepSeek", hint: "AI email drafts (optional — a template is used without it)" },
   { key: "GROQ_API_KEY", label: "Groq", hint: "Alternative AI provider for drafts (optional)" },
   { key: "APIFY_TOKEN", label: "Apify", hint: "Reads websites that block simple requests (optional)" },
-  { key: "HUBSPOT_ACCESS_TOKEN", label: "HubSpot CRM", hint: "Sync leads to HubSpot (optional)" },
 ];
 
 function Section({ icon, title, description, children }: { icon: ReactNode; title: string; description: string; children: ReactNode }) {
@@ -187,6 +193,10 @@ export default function SettingsPage() {
           />
         </div>
       </Section>
+
+      <StorageSettings />
+
+      <HubSpotSettings />
 
       <Section icon={<KeyRound className="h-4 w-4" />} title="API keys" description="Optional integrations.">
         <div className="space-y-3">

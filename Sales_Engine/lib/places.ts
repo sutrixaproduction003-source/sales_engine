@@ -17,8 +17,17 @@ export interface ScrapedPlace {
   categories: string[];
   /** The search term (e.g. "hotels") that found this place. */
   searchTerm: string | null;
+  /** Best general inbox (info@, sales@ …). */
   email: string;
+  /** Every public email found on the business website. */
+  emails?: string[];
   phone: string;
+  /** Pinned near the city centre: the source had no exact address (Apollo). */
+  locationApproximate?: boolean;
+  /** Decision-maker found with Apollo (shown on the map; saved on the lead). */
+  contactName?: string | null;
+  contactTitle?: string | null;
+  phoneStatus?: string | null;
   companyWebsite: string;
   exactAddress: string;
   location: string;
@@ -46,6 +55,10 @@ export interface PlacesRun {
   done: boolean;
   places: ScrapedPlace[];
   startedAt?: string;
+  /** Where results come from: Google Maps (Apify), or the free OpenStreetMap fallback. */
+  source?: "google_maps" | "apollo" | "openstreetmap";
+  /** Why the fallback was used, e.g. "Apify is out of credit". */
+  fallbackReason?: string | null;
   /** Present once done: how many places were stored in the pipeline. */
   saved?: number;
   updated?: number;
@@ -70,8 +83,9 @@ export function startPlacesSearch(params: StartPlacesSearchParams): Promise<Plac
   });
 }
 
-export function pollPlacesSearch(runId: string, project: string): Promise<PlacesRun> {
-  const query = new URLSearchParams({ project });
+/** Poll a scrape. `save: false` returns results without saving them as leads. */
+export function pollPlacesSearch(runId: string, project: string, { save = true } = {}): Promise<PlacesRun> {
+  const query = new URLSearchParams({ project, ...(save ? {} : { save: "0" }) });
   return apiCall<PlacesRun>(`/api/places/search/${encodeURIComponent(runId)}?${query}`);
 }
 

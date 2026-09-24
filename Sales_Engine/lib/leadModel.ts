@@ -51,6 +51,13 @@ export interface Lead {
   email: string | null;
   jobTitle: string | null;
   phone: string | null;
+  /** The business's own number, kept when a contact person's number is added. */
+  companyPhone: string | null;
+  /** Apollo mobile lookup: "pending" while Apollo finds it, then "found" / "none". */
+  phoneStatus: string | null;
+  /** Apollo's id for a pending mobile lookup (a 64-bit integer, kept as text). */
+  phoneRequestId: string | null;
+  apolloId: string | null;
   linkedinUrl: string | null;
   location: string | null;
   city: string | null;

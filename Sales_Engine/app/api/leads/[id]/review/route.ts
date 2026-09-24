@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getLead, updateLead } from "@/lib/leadDb";
+import { autoSyncLeads } from "@/lib/hubspotSync";
 
 export const runtime = "nodejs";
 
@@ -31,6 +32,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       return NextResponse.json({ error: "Only drafts waiting for review can be rejected." }, { status: 409 });
     }
     const updated = await updateLead(id, { status: "REJECTED" });
+    await autoSyncLeads([id]);
     return NextResponse.json({ success: true, lead: updated });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Review decision failed.";

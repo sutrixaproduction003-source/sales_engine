@@ -57,6 +57,17 @@ export const PROJECTS: ProjectConfig[] = [
     provider: "apollo",
   },
   {
+    id: "medos",
+    name: "Med OS",
+    description: "Healthcare outreach (hospitals and clinics).",
+    requirements: {
+      industry: "Hospital & Health Care",
+      categories: ["Hospitals", "Clinics"],
+      targetRoles: ["Medical Director", "Hospital Administrator", "CEO", "Owner", "IT Head"],
+    },
+    provider: "apollo",
+  },
+  {
     id: "general",
     name: "General Sales",
     description: "Open prospecting across any industry or location.",

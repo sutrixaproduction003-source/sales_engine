@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Button, Card, cn } from "@/components/ui";
 import { UploadCloud } from "lucide-react";
 import { refreshLeads, useLeadsStore } from "@/lib/leadStore";
@@ -10,6 +11,7 @@ import { StateBadge } from "@/components/StateBadge";
 import { LeadDrawer } from "@/components/LeadDrawer";
 import { FilterBar, LeadFilters, EMPTY_FILTERS } from "./filters";
 import { PipelineLead } from "@/lib/types";
+import { LeadActions } from "./LeadActions";
 
 /**
  * Leads Hub — fully dynamic. Leads are loaded from the backend
@@ -87,6 +89,12 @@ export function LeadsHub() {
           </p>
         </div>
         <div className="flex items-center gap-2 sm:ml-auto">
+          <Link
+            href="/import"
+            className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-200 hover:bg-sky-500/20"
+          >
+            <UploadCloud className="h-4 w-4" /> Import from Sales Navigator
+          </Link>
           <Button variant="secondary" loading={uploading} onClick={() => fileRef.current?.click()}>
             <UploadCloud className="h-4 w-4" /> Import CSV
           </Button>
@@ -99,6 +107,8 @@ export function LeadsHub() {
           />
         </div>
       </div>
+
+      <LeadActions leads={filtered} />
 
       {uploadMsg && (
         <p className={cn("text-sm", uploadMsg.ok ? "text-emerald-400" : "text-rose-400")}>{uploadMsg.text}</p>

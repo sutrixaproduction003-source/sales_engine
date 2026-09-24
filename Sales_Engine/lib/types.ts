@@ -126,6 +126,10 @@ export interface PipelineLead {
 
   phone?: string | null;
 
+  phoneStatus?: string | null;
+
+  companyPhone?: string | null;
+
   linkedinUrl?: string | null;
 
   linkedinAvailable?: boolean;

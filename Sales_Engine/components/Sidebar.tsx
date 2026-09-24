@@ -7,8 +7,6 @@ import {
   Users,
   Globe,
   Sparkles,
-  Megaphone,
-  Inbox,
   Settings as SettingsIcon,
   HelpCircle,
   Zap,
@@ -16,7 +14,7 @@ import {
   Send,
   Plug,
   ChevronsLeft,
-  Share2,
+  UploadCloud,
 } from "lucide-react";
 import { cn } from "@/components/ui";
 
@@ -26,6 +24,7 @@ const groups: { label?: string; items: { href: string; label: string; icon: type
       { href: "/", label: "Overview", icon: LayoutDashboard },
       { href: "/leads", label: "Leads Hub", icon: Users },
       { href: "/discovery", label: "Discovery", icon: Globe },
+      { href: "/import", label: "Sales Nav Import", icon: UploadCloud },
       { href: "/dispatch", label: "Dispatch", icon: Send },
     ],
   },
@@ -34,14 +33,6 @@ const groups: { label?: string; items: { href: string; label: string; icon: type
     items: [
       { href: "/personalization", label: "Personalization", icon: Sparkles },
       { href: "/review", label: "Review Queue", icon: ClipboardCheck },
-    ],
-  },
-  {
-    label: "Engagement",
-    items: [
-      { href: "/campaigns", label: "Campaigns", icon: Megaphone },
-      { href: "/social", label: "Social Studio", icon: Share2 },
-      { href: "/inboxes", label: "Inboxes", icon: Inbox },
     ],
   },
   {

@@ -16,31 +16,41 @@ function toLeadData(place: ScrapedPlace, project: string | null) {
     website: place.companyWebsite || "",
     googlePlaceId: place.placeId,
     project,
-    source: "google_maps",
+    source: place.source || "google_maps",
   };
 }
 
 /**
- * Store scraped places, deduplicated by Google place id. Re-scraping refreshes
+ * Store scraped places, deduplicated by place id (Google, or "osm:node/…"). Re-scraping refreshes
  * the business details but never resets a lead's pipeline status or project.
  */
 function savePlaces(places: ScrapedPlace[], project: string | null) {
   return transaction((tx) => {
     let saved = 0;
     let updated = 0;
-    const stored = new Map<string, { id: number; status: ScrapedPlace["status"] }>();
+    const stored = new Map<string, { id: number; status: ScrapedPlace["status"]; contact: Partial<ScrapedPlace> }>();
 
     for (const place of places) {
       const data = toLeadData(place, project);
       const existing = place.placeId ? tx.find((l) => l.googlePlaceId === place.placeId) : undefined;
       try {
+        // A decision-maker found with Apollo stays the lead's contact.
+        const contact = existing?.apolloId
+          ? { name: existing.name, jobTitle: existing.jobTitle, email: existing.email, phone: existing.phone, companyPhone: data.phone || existing.companyPhone }
+          : {};
         const row = existing
-          ? tx.update(existing.id, { ...data, project: existing.project ?? project, email: data.email ?? existing.email })
+          ? tx.update(existing.id, { ...data, project: existing.project ?? project, email: data.email ?? existing.email, ...contact })
           : tx.create(data);
         if (!row) continue;
         if (existing) updated++;
         else saved++;
-        stored.set(place.id, { id: row.id, status: row.status });
+        stored.set(place.id, {
+          id: row.id,
+          status: row.status,
+          contact: row.apolloId
+            ? { contactName: row.name, contactTitle: row.jobTitle, email: row.email ?? "", phone: row.phone ?? "", phoneStatus: row.phoneStatus }
+            : {},
+        });
       } catch (error) {
         // Same email + website already stored under another place: keep going.
         if (!(error instanceof DuplicateLeadError)) throw error;
@@ -67,11 +77,15 @@ export async function GET(request: Request, { params }: { params: { runId: strin
     status: result.status,
     done: result.done,
     startedAt: result.startedAt,
+    source: result.source,
+    fallbackReason: result.fallbackReason ?? null,
     places: result.places ?? [],
   };
-  if (!run.done) return NextResponse.json(run);
+  // `save=0`: a lookup whose results are attached to existing leads instead.
+  const search = new URL(request.url).searchParams;
+  if (!run.done || search.get("save") === "0") return NextResponse.json(run);
 
-  const projectId = new URL(request.url).searchParams.get("project");
+  const projectId = search.get("project");
   const project = getProject(projectId)?.id ?? null;
 
   try {
@@ -80,14 +94,14 @@ export async function GET(request: Request, { params }: { params: { runId: strin
     run.updated = updated;
     run.places = run.places.map((place) => {
       const row = stored.get(place.id);
-      return row ? { ...place, dbId: row.id, status: row.status } : place;
+      return row ? { ...place, ...row.contact, dbId: row.id, status: row.status } : place;
     });
   } catch (error) {
     console.error("Failed to save scraped places:", error);
     run.saved = 0;
     run.updated = 0;
     run.saveError =
-      error instanceof Error && error.name === "LeadStoreBusyError"
+      error instanceof Error && error.name === "LeadStoreError"
         ? error.message
         : "Leads were found but could not be saved to the leads spreadsheet.";
   }

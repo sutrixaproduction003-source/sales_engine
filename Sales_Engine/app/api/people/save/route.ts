@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { transaction } from "@/lib/leadDb";
 import { cleanString, toLeadDetails } from "@/lib/leadRecord";
 import { getProject } from "@/lib/projects";
+import { pickContactEmail } from "@/lib/contactEmail";
+import { autoSyncLeads } from "@/lib/hubspotSync";
 import type { FoundPerson, SavePersonResult } from "@/lib/people";
 import type { ScrapedPlace } from "@/lib/places";
 
@@ -28,7 +30,10 @@ export async function POST(request: Request) {
   }
 
   const personalEmail = cleanString(person.email);
-  const businessEmail = cleanString(business?.email);
+  // The person's own address if the business site lists it, else a general inbox.
+  const businessEmail = business
+    ? pickContactEmail(business.emails?.length ? business.emails : [business.email], name, business.companyWebsite) ?? ""
+    : "";
   const email = personalEmail || businessEmail || null;
   const emailKind: SavePersonResult["emailKind"] = personalEmail ? "personal" : businessEmail ? "business" : "none";
   const company = cleanString(business?.companyName) || cleanString(person.company) || null;
@@ -62,6 +67,7 @@ export async function POST(request: Request) {
       return { lead: tx.create({ ...data, status: "PENDING" }), created: true };
     });
 
+    await autoSyncLeads([result.lead.id]);
     return NextResponse.json({
       lead: { id: result.lead.id, status: result.lead.status, email: result.lead.email },
       created: result.created,

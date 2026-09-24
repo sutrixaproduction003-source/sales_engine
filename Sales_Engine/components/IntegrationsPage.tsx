@@ -86,10 +86,10 @@ export function IntegrationsPageContent() {
 
   const providers: { name: string; initial: string; tone: string; desc: string; state: HealthState }[] = [
     {
-      name: "Apollo",
+      name: "Apollo.io",
       initial: "A",
       tone: "from-amber-500 to-orange-600",
-      desc: "People & company search via Apollo (mixed_people) — called by the provider backend.",
+      desc: "Decision-makers at a business and their work emails. Add the API key in Settings → API keys.",
       state: health?.apollo ?? null,
     },
   ];

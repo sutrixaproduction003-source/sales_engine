@@ -105,12 +105,48 @@ describe('/api/places/search', () => {
     expect(res.body.places[0].latitude).toBe(15.2517);
   });
 
-  test('GET maps a failed run to 502', async () => {
-    axios.request.mockResolvedValue({ data: { data: { id: 'run-1', status: 'FAILED', defaultDatasetId: 'ds-1' } } });
+  test('GET maps a failed run it has no search for to 502', async () => {
+    axios.request.mockResolvedValue({ data: { data: { id: 'run-old', status: 'FAILED', defaultDatasetId: 'ds-1' } } });
 
-    const res = await request(app).get('/api/places/search/run-1');
+    const res = await request(app).get('/api/places/search/run-old');
 
     expect(res.statusCode).toBe(502);
     expect(res.body.error.code).toBe('SCRAPER_FAILED');
+  });
+});
+
+describe('/api/places/lookup', () => {
+  afterEach(() => jest.resetAllMocks());
+
+  test('starts one run for many businesses, one place each', async () => {
+    axios.request.mockResolvedValue({ data: { data: { id: 'run-9', status: 'READY', defaultDatasetId: 'ds-9' } } });
+
+    const res = await request(app)
+      .post('/api/places/lookup')
+      .send({ queries: ['Lucas TVS Ltd, Chennai', 'Lucas TVS Ltd, Chennai', 'Bajaj Healthcare Ltd, Vadodara'] });
+
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toMatchObject({ runId: 'run-9', queries: 2 });
+    expect(axios.request.mock.calls[0][0].data).toMatchObject({
+      searchStringsArray: ['Lucas TVS Ltd, Chennai', 'Bajaj Healthcare Ltd, Vadodara'],
+      maxCrawledPlacesPerSearch: 1,
+    });
+  });
+
+  test('rejects an empty list', async () => {
+    const res = await request(app).post('/api/places/lookup').send({ queries: [] });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('business email choice', () => {
+  test('prefers a general inbox and ignores HR, careers and third-party addresses', () => {
+    const place = (emails, website = 'https://www.shardamotor.com/infrastructure/') =>
+      normalizePlace({ title: 'Sharda Motor', placeId: 'p', website, emails });
+
+    expect(place(['hr@shardamotor.com', 'info@shardamotor.com']).email).toBe('info@shardamotor.com');
+    expect(place(['info@alankit.com', 'sales@shardamotor.com']).emails).toEqual(['sales@shardamotor.com']);
+    expect(place(['careers@shardamotor.com']).email).toBe('');
+    expect(place(['hotelcasadepatio27@gmail.com'], 'http://hotelcasadepatio.in/').email).toBe('hotelcasadepatio27@gmail.com');
   });
 });

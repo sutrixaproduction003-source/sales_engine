@@ -1,5 +1,5 @@
 const express = require('express');
-const { startPlacesSearch, getPlacesSearch } = require('../services/placesService');
+const { startPlacesSearch, startPlacesLookup, getPlacesSearch } = require('../services/placesService');
 const { asyncHandler } = require('../utils/errors');
 
 const router = express.Router();
@@ -16,6 +16,19 @@ router.post(
     const { location, searchTerms, maxPlacesPerTerm } = req.body || {};
     const run = await startPlacesSearch({ location, searchTerms, maxPlacesPerTerm });
     res.status(202).json({ success: true, ...run });
+  })
+);
+
+/**
+ * POST /api/places/lookup — look up specific businesses (one place each).
+ *
+ * { "queries": ["Lucas TVS Ltd, Chennai", "Bajaj Healthcare Ltd, Vadodara"] }
+ * → 202 { success, runId, status }. Poll with GET /api/places/search/:runId.
+ */
+router.post(
+  '/places/lookup',
+  asyncHandler(async (req, res) => {
+    res.status(202).json({ success: true, ...(await startPlacesLookup(req.body?.queries)) });
   })
 );
 
