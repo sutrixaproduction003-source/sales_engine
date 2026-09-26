@@ -21,20 +21,62 @@ export interface ServiceAccount {
  * key file's JSON as-is, or base64) or GOOGLE_SERVICE_ACCOUNT_JSON.
  */
 export function getServiceAccount(): ServiceAccount | null {
-  const setting = getSetting("GOOGLE_SERVICE_ACCOUNT").trim();
-  const raw = setting
-    ? setting.startsWith("{")
-      ? setting
-      : Buffer.from(setting, "base64").toString("utf8")
-    : process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "";
-  if (!raw.trim()) return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<ServiceAccount>;
-    if (!parsed.client_email || !parsed.private_key) return null;
-    return { client_email: parsed.client_email, private_key: parsed.private_key };
-  } catch {
-    return null;
+  const result = readServiceAccount();
+  return "account" in result ? result.account : null;
+}
+
+/** Why the configured key can't be used, in words safe to show (never any key content). */
+export function serviceAccountProblem(): string | null {
+  const result = readServiceAccount();
+  return "problem" in result ? result.problem : null;
+}
+
+/** Remove quotes a host's settings form may have kept around the whole value. */
+const unwrap = (value: string) => value.trim().replace(/^(['"])([\s\S]*)\1$/, "$2").trim();
+
+type KeyResult = { account: ServiceAccount } | { problem: string } | { missing: true };
+
+/**
+ * Read the key leniently: pasted into a hosting dashboard, the JSON often
+ * arrives wrapped in quotes, base64-encoded, or with the private key's "\n"
+ * turned into real line breaks (which JSON.parse rejects) — all accepted.
+ */
+function readServiceAccount(): KeyResult {
+  const setting = unwrap(getSetting("GOOGLE_SERVICE_ACCOUNT"));
+  let raw = setting || unwrap(process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "");
+  if (!raw) return { missing: true };
+  if (!raw.startsWith("{")) {
+    const decoded = Buffer.from(raw, "base64").toString("utf8").trim();
+    if (!decoded.startsWith("{")) {
+      return { problem: "GOOGLE_SERVICE_ACCOUNT isn't the key file's JSON (it should start with { ) or its base64." };
+    }
+    raw = decoded;
   }
+
+  let parsed: Partial<ServiceAccount> & { type?: string };
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // Real line breaks inside the private key: pick the two fields out directly.
+    const email = raw.match(/"client_email"\s*:\s*"([^"]+)"/)?.[1];
+    const key = raw.match(/"private_key"\s*:\s*"(-----BEGIN [^"]+-----END [A-Z ]+-----[^"]*)"/)?.[1];
+    if (!email || !key) {
+      return {
+        problem:
+          "GOOGLE_SERVICE_ACCOUNT couldn't be read as JSON. Paste the whole key file, from the first { to the last }, with nothing around it.",
+      };
+    }
+    parsed = { client_email: email, private_key: key };
+  }
+
+  if (!parsed.client_email) return { problem: "GOOGLE_SERVICE_ACCOUNT has no client_email — is it a service account key file?" };
+  if (!parsed.private_key) return { problem: "GOOGLE_SERVICE_ACCOUNT has no private_key — download a new JSON key for the service account." };
+  // "\n" written out as text → real line breaks, as the PEM format needs.
+  const privateKey = parsed.private_key.replace(/\\n/g, "\n");
+  if (!/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(privateKey)) {
+    return { problem: "GOOGLE_SERVICE_ACCOUNT's private_key looks cut off. Paste the whole key file again." };
+  }
+  return { account: { client_email: parsed.client_email, private_key: privateKey } };
 }
 
 const base64url = (input: string | Buffer) =>
