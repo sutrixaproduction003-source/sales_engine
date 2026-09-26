@@ -11,6 +11,7 @@ type Msg = { ok: boolean; text: string } | null;
 interface StorageInfo {
   active: Store | "none";
   connected?: boolean;
+  excelAvailable?: boolean;
   message?: string | null;
   sheetUrl: string | null;
   serviceAccountEmail: string | null;
@@ -126,13 +127,15 @@ export function StorageSettings() {
       )}
 
       <div className="flex flex-col gap-2 sm:flex-row">
-        <Choice
-          active={info?.active === "excel"}
-          onClick={() => info?.active !== "excel" && switchTo("excel")}
-          icon={<FileSpreadsheet className="h-4 w-4 text-emerald-400" />}
-          title="Excel file"
-          text="data/leads.xlsx on this computer. Simple; only works where the app runs locally."
-        />
+        {info?.excelAvailable !== false && (
+          <Choice
+            active={info?.active === "excel"}
+            onClick={() => info?.active !== "excel" && switchTo("excel")}
+            icon={<FileSpreadsheet className="h-4 w-4 text-emerald-400" />}
+            title="Excel file"
+            text="data/leads.xlsx on this computer. Simple; only works where the app runs locally."
+          />
+        )}
         <Choice
           active={info?.active === "sheets"}
           onClick={() => {
@@ -208,9 +211,11 @@ export function StorageSettings() {
             <Button variant="secondary" onClick={test} loading={busy === "test"} disabled={busy !== null || !sheetsReady}>
               Test connection
             </Button>
+            {info?.excelAvailable !== false && (
             <Button variant="secondary" onClick={copyExcelToSheets} loading={busy === "copy"} disabled={busy !== null || !sheetsReady}>
               Copy my Excel leads into the sheet
             </Button>
+            )}
             {info?.sheetUrl && (
               <a href={info.sheetUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 self-center text-xs text-sky-400 hover:underline">
                 Open sheet <ExternalLink className="h-3 w-3" />

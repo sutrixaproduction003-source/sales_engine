@@ -251,10 +251,25 @@ export async function countLeads(id: LeadStoreId): Promise<number> {
  */
 export async function copyLeads(from: LeadStoreId, to: LeadStoreId, { overwrite = false } = {}): Promise<number> {
   if (from === to) throw new LeadStoreError("Choose two different stores.", "config");
+  // On a host without a lasting disk the Excel file is always empty: copying
+  // it would only wipe the destination.
+  if (from === "excel" && ephemeralDisk()) {
+    throw new LeadStoreError(
+      "There's no Excel file on this deployment — copying Excel leads only works where the app runs on your computer.",
+      "config"
+    );
+  }
   return serialize(async () => {
     const source = await load(storeById(from));
     const target = storeById(to);
     const existing = await load(target);
+    // Never replace leads with nothing, even when confirmed.
+    if (source.length === 0) {
+      throw new LeadStoreError(
+        `The ${storeById(from).label} has no leads to copy${existing.length ? ` — the ${existing.length} leads in ${target.label} were left as they are` : ""}.`,
+        "config"
+      );
+    }
     if (existing.length > 0 && !overwrite) {
       throw new LeadStoreError(
         `The ${target.label} already has ${existing.length} leads. Copying would replace them — confirm to overwrite.`,

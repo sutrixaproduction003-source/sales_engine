@@ -13,6 +13,8 @@ const isStore = (value: unknown): value is LeadStoreId => value === "excel" || v
 export async function GET() {
   return NextResponse.json({
     active: activeStore().id,
+    // No lasting disk (Vercel): the Excel option doesn't apply here.
+    excelAvailable: process.env.VERCEL !== "1",
     ...storageStatus(),
     sheetUrl: sheetUrl(),
     serviceAccountEmail: getServiceAccount()?.client_email ?? null,
