@@ -12,7 +12,7 @@ import { type Lead, type LeadInput, type LeadStatus, type LeadUpdate } from "@/l
 import { toLead } from "@/lib/storage/leadColumns";
 import { excelStore } from "@/lib/storage/excelStore";
 import { sheetsStore } from "@/lib/storage/sheetsStore";
-import { getServiceAccount } from "@/lib/storage/googleAuth";
+import { getServiceAccount, serviceAccountProblem } from "@/lib/storage/googleAuth";
 import { LeadStoreError, type LeadStoreDriver } from "@/lib/storage/types";
 
 export { LeadStoreError };
@@ -72,7 +72,12 @@ export function storageStatus(): { connected: boolean; message: string | null } 
   const store = activeStore();
   if (store.id === "none") return { connected: false, message: STORAGE_NOT_CONNECTED };
   if (store.id === "sheets" && !sheetsConfigured()) {
-    return { connected: false, message: "Google Sheets is selected but not set up: add GOOGLE_SHEET_ID and GOOGLE_SERVICE_ACCOUNT." };
+    // Say exactly which part is missing or unreadable.
+    const problems = [
+      !getSetting("GOOGLE_SHEET_ID").trim() && "GOOGLE_SHEET_ID is missing.",
+      serviceAccountProblem() ?? (!getServiceAccount() && "GOOGLE_SERVICE_ACCOUNT is missing."),
+    ].filter(Boolean);
+    return { connected: false, message: `Google Sheets isn't set up yet: ${problems.join(" ")}` };
   }
   return { connected: true, message: null };
 }
