@@ -123,4 +123,16 @@ async function scrape(type, input) {
   return runActor(scraper.actor, scraper.buildInput(input));
 }
 
-module.exports = { SCRAPERS, scrape, startActorRun, getActorRun, getDatasetItems };
+/** Live check of the Apify token (free): the account it belongs to and its plan. */
+async function checkAccount() {
+  ensureToken();
+  const user = (await apify('get', '/users/me'))?.data || {};
+  const usage = user.plan?.monthlyUsageCreditsUsd;
+  return {
+    username: user.username || null,
+    plan: user.plan?.id || null,
+    monthlyCreditUsd: typeof usage === 'number' ? usage : null,
+  };
+}
+
+module.exports = { SCRAPERS, scrape, startActorRun, getActorRun, getDatasetItems, checkAccount };

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Plug, ShieldCheck, Puzzle, CheckCircle2, XCircle, AlertTriangle, ExternalLink } from "lucide-react";
 import { Card, Badge, Button, PageHeader, cn } from "@/components/ui";
+import { LiveChecks } from "@/components/LiveChecks";
 import { getProviderHealth } from "@/lib/leadService";
 import { apiCall } from "@/lib/api";
 
@@ -115,6 +116,8 @@ export function IntegrationsPageContent() {
         title="Integrations"
         description="Connection status for every provider. Keys stay on the server and never reach the browser."
       />
+
+      <LiveChecks />
 
       {/* Architecture note */}
       <div className="flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3">

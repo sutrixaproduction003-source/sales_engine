@@ -8,6 +8,7 @@ const scraperRoutes = require('./routes/scraperRoutes');
 const placesRoutes = require('./routes/placesRoutes');
 const peopleRoutes = require('./routes/peopleRoutes');
 const apolloRoutes = require('./routes/apolloRoutes');
+const healthRoutes = require('./routes/healthRoutes');
 const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
 const requireBackendKey = require('./middleware/requireBackendKey');
@@ -57,6 +58,7 @@ app.use('/api', scraperRoutes);
 app.use('/api', placesRoutes);
 app.use('/api', peopleRoutes);
 app.use('/api', apolloRoutes);
+app.use('/api', healthRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
