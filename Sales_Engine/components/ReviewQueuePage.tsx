@@ -14,7 +14,7 @@ import {
   Star,
   XCircle,
 } from "lucide-react";
-import { Badge, Button, Card, Input, cn } from "@/components/ui";
+import { Badge, Button, Card, Input, PageHeader, cn } from "@/components/ui";
 import { apiCall } from "@/lib/api";
 import { fetchLeads } from "@/lib/leadService";
 import type { PipelineLead } from "@/lib/types";
@@ -149,11 +149,11 @@ function ReviewCard({
 
       <div className="space-y-2">
         <div>
-          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Subject</label>
+          <label className="text-[13px] font-medium text-slate-300">Subject</label>
           <Input value={draft.subject} onChange={(e) => edit({ subject: e.target.value })} disabled={busy !== null} />
         </div>
         <div>
-          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Email</label>
+          <label className="text-[13px] font-medium text-slate-300">Email</label>
           <textarea
             value={draft.body}
             onChange={(e) => edit({ body: e.target.value })}
@@ -171,7 +171,7 @@ function ReviewCard({
       </div>
 
       {error && (
-        <p className="flex items-start gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+        <p className="flex items-start gap-1.5 rounded-lg border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-xs leading-relaxed text-amber-200">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {error}
         </p>
       )}
@@ -188,11 +188,17 @@ function ReviewCard({
           )}
         </div>
         <div className="flex gap-2">
-          <Button variant="danger" onClick={reject} loading={busy === "reject"} disabled={busy !== null}>
+          <Button
+            variant="secondary"
+            className="!text-rose-300 hover:!text-rose-200"
+            onClick={reject}
+            loading={busy === "reject"}
+            disabled={busy !== null}
+          >
             <XCircle className="h-4 w-4" /> Reject
           </Button>
           <Button
-            variant="success"
+            variant="primary"
             onClick={send}
             loading={busy === "send"}
             disabled={busy !== null || !ready || !canSend}
@@ -233,36 +239,29 @@ export function ReviewQueuePageContent() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-500/15 text-orange-400">
-            <ClipboardCheck className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold text-white">Human Review Queue</h1>
-            <p className="text-sm text-slate-400">
-              {pendingCount > 0 ? (
-                <>
-                  <span className="font-semibold text-orange-400">{pendingCount} drafts</span> waiting — nothing is sent
-                  until you approve it.
-                </>
-              ) : (
-                "Queue clear — every draft has been reviewed."
-              )}
-            </p>
-          </div>
-        </div>
-        <div className="text-xs text-slate-500">Scraped → Drafted → Reviewed by you → Sent via Gmail</div>
-      </div>
+      <PageHeader
+        icon={<ClipboardCheck className="h-[18px] w-[18px]" />}
+        title="Review Queue"
+        description={
+          pendingCount > 0 ? (
+            <>
+              <span className="font-medium text-amber-300">{pendingCount} drafts</span> waiting. Nothing is sent until you
+              approve it.
+            </>
+          ) : (
+            "Queue clear: every draft has been reviewed."
+          )
+        }
+      />
 
       {mail && !mail.configured && (
-        <Card className="flex flex-wrap items-center gap-3 border-amber-500/30 bg-amber-500/5">
-          <AlertTriangle className="h-5 w-5 text-amber-400" />
-          <p className="flex-1 text-sm text-amber-200">Gmail is not connected, so approved drafts can&apos;t be sent yet.</p>
-          <Link href="/settings" className="text-sm font-medium text-sky-400 hover:underline">
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-300" />
+          <p className="min-w-0 flex-1 text-sm text-slate-200">Gmail isn&apos;t connected, so approved drafts can&apos;t be sent yet.</p>
+          <Link href="/settings" className="text-sm font-medium text-amber-200 hover:text-amber-100">
             Connect Gmail →
           </Link>
-        </Card>
+        </div>
       )}
       {mail?.configured && <p className="text-xs text-slate-500">Sending from {mail.user}</p>}
 

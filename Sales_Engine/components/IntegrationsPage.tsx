@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Plug, ShieldCheck, Puzzle, CheckCircle2, XCircle, AlertTriangle, ExternalLink } from "lucide-react";
-import { Card, Badge, Button, cn } from "@/components/ui";
+import { Card, Badge, Button, PageHeader, cn } from "@/components/ui";
+import { LiveChecks } from "@/components/LiveChecks";
 import { getProviderHealth } from "@/lib/leadService";
 import { apiCall } from "@/lib/api";
 
@@ -110,18 +111,13 @@ export function IntegrationsPageContent() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-500/15 text-violet-400">
-          <Plug className="h-5 w-5" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-semibold text-white">Integrations</h1>
-          <p className="text-sm text-slate-400">
-            Connect data providers through the Sales Engine backend — credentials never touch the browser.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Plug className="h-[18px] w-[18px]" />}
+        title="Integrations"
+        description="Connection status for every provider. Keys stay on the server and never reach the browser."
+      />
+
+      <LiveChecks />
 
       {/* Architecture note */}
       <div className="flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3">

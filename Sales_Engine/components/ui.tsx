@@ -14,11 +14,19 @@ export function cn(...classes: Array<string | false | null | undefined | Record<
     .join(" ");
 }
 
+const BUTTON_VARIANTS = {
+  primary: "bg-indigo-600 text-white shadow-sm shadow-indigo-950/40 ring-1 ring-inset ring-white/10 hover:bg-indigo-500",
+  secondary: "bg-slate-800/70 text-slate-100 ring-1 ring-inset ring-slate-700/80 hover:bg-slate-800 hover:ring-slate-600",
+  ghost: "text-slate-300 hover:bg-slate-800/70 hover:text-white",
+  danger: "bg-rose-600 text-white ring-1 ring-inset ring-white/10 hover:bg-rose-500",
+  success: "bg-emerald-600 text-white ring-1 ring-inset ring-white/10 hover:bg-emerald-500",
+} as const;
+
 export function Button({
   children, variant = "primary", loading = false, className = "", disabled, onClick, type = "button", title,
 }: {
   children: React.ReactNode;
-  variant?: "primary" | "secondary" | "ghost" | "danger" | "success";
+  variant?: keyof typeof BUTTON_VARIANTS;
   loading?: boolean;
   className?: string;
   disabled?: boolean;
@@ -30,15 +38,10 @@ export function Button({
     <button
       type={type} onClick={onClick} disabled={disabled || loading} title={title}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition",
-        "focus:outline-none focus:ring-2 focus:ring-indigo-500/50",
-        variant === "primary" && "bg-indigo-600 hover:bg-indigo-500 text-white shadow",
-        variant === "secondary" && "bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700",
-        variant === "ghost" && "text-slate-300 hover:bg-slate-800",
-        variant === "danger" && "bg-rose-600/90 hover:bg-rose-500 text-white",
-        variant === "success" && "bg-emerald-600 hover:bg-emerald-500 text-white",
-        disabled && "opacity-50 pointer-events-none",
-        loading && "opacity-60 pointer-events-none",
+        "inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-medium transition-colors",
+        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500",
+        BUTTON_VARIANTS[variant],
+        (disabled || loading) && "pointer-events-none opacity-50",
         className
       )}
     >
@@ -49,85 +52,131 @@ export function Button({
 
 export function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={cn("rounded-xl border border-slate-800 bg-slate-900/60 backdrop-blur p-5", className)}>{children}</div>
+    <div className={cn("rounded-xl border border-slate-800 bg-slate-900 p-5 shadow-card", className)}>{children}</div>
+  );
+}
+
+/** Page title row: optional icon, title, one-line description, and actions on the right. */
+export function PageHeader({
+  title,
+  description,
+  icon,
+  actions,
+  children,
+}: {
+  title: React.ReactNode;
+  description?: React.ReactNode;
+  icon?: React.ReactNode;
+  actions?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+      <div className="flex min-w-0 items-start gap-3">
+        {icon && (
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-300 ring-1 ring-inset ring-indigo-500/20">
+            {icon}
+          </span>
+        )}
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-white">{title}</h1>
+          {description && <p className="mt-0.5 text-sm text-slate-400">{description}</p>}
+          {children}
+        </div>
+      </div>
+      {actions && <div className="flex flex-wrap items-center gap-2 sm:ml-auto">{actions}</div>}
+    </div>
+  );
+}
+
+/** Heading inside a card: title, optional description, optional actions. */
+export function SectionHeader({
+  title,
+  description,
+  actions,
+  className = "",
+}: {
+  title: React.ReactNode;
+  description?: React.ReactNode;
+  actions?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("mb-4 flex flex-wrap items-start gap-3", className)}>
+      <div className="min-w-0">
+        <h2 className="text-[15px] font-semibold text-white">{title}</h2>
+        {description && <p className="mt-0.5 text-[13px] leading-relaxed text-slate-400">{description}</p>}
+      </div>
+      {actions && <div className="ml-auto flex items-center gap-2">{actions}</div>}
+    </div>
   );
 }
 
 const BADGE_PALETTE: Record<string, string> = {
-  slate: "bg-slate-800 text-slate-300",
-  amber: "bg-amber-500/15 text-amber-400",
-  sky: "bg-sky-500/15 text-sky-400",
-  emerald: "bg-emerald-500/15 text-emerald-400",
-  rose: "bg-rose-500/15 text-rose-400",
-  teal: "bg-teal-500/15 text-teal-400",
-  violet: "bg-violet-500/15 text-violet-400",
-  orange: "bg-orange-500/15 text-orange-400",
-  indigo: "bg-indigo-500/15 text-indigo-400",
-  purple: "bg-purple-500/15 text-purple-400",
-  red: "bg-red-500/15 text-red-400",
-  zinc: "bg-zinc-500/15 text-zinc-400",
+  slate: "bg-slate-800 text-slate-300 ring-slate-700/60",
+  amber: "bg-amber-500/10 text-amber-300 ring-amber-500/20",
+  sky: "bg-indigo-500/10 text-indigo-300 ring-indigo-500/20",
+  emerald: "bg-emerald-500/10 text-emerald-300 ring-emerald-500/20",
+  rose: "bg-rose-500/10 text-rose-300 ring-rose-500/20",
+  teal: "bg-teal-500/10 text-teal-300 ring-teal-500/20",
+  violet: "bg-indigo-500/10 text-indigo-300 ring-indigo-500/20",
+  orange: "bg-orange-500/10 text-orange-300 ring-orange-500/20",
+  indigo: "bg-indigo-500/10 text-indigo-300 ring-indigo-500/20",
+  purple: "bg-purple-500/10 text-purple-300 ring-purple-500/20",
+  red: "bg-red-500/10 text-red-300 ring-red-500/20",
+  zinc: "bg-zinc-500/10 text-zinc-300 ring-zinc-500/20",
 };
 
 export function Badge({ children, color = "slate", className = "" }: { children: React.ReactNode; color?: string; className?: string }) {
   return (
-    <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", BADGE_PALETTE[color] ?? BADGE_PALETTE.slate, className)}>
+    <span
+      className={cn(
+        "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
+        BADGE_PALETTE[color] ?? BADGE_PALETTE.slate,
+        className
+      )}
+    >
       {children}
     </span>
   );
 }
+
+/** Shared field look (width is set per control). */
+const FIELD =
+  "rounded-lg border border-slate-700/80 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 shadow-sm transition-colors " +
+  "placeholder:text-slate-500 hover:border-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 " +
+  "disabled:cursor-not-allowed disabled:opacity-60";
+
 export function Input({ className = "", ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      className={cn(
-        "w-full rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-100",
-        "placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/40",
-        className
-      )}
-      {...props}
-    />
-  );
+  return <input className={cn(FIELD, "w-full", className)} {...props} />;
 }
 
 export function Select({ className = "", children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement> & { children: React.ReactNode }) {
   return (
-    <select
-      className={cn(
-        "rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-100",
-        "focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/40",
-        className
-      )}
-      {...props}
-    >
+    <select className={cn(FIELD, "pr-8", className)} {...props}>
       {children}
     </select>
   );
 }
 
 export function Textarea({ className = "", ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <textarea
-      className={cn(
-        "w-full rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2 text-sm text-slate-100",
-        "placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/40",
-        className
-      )}
-      {...props}
-    />
-  );
+  return <textarea className={cn(FIELD, "w-full leading-relaxed", className)} {...props} />;
 }
 
 export function Label({ children, className = "", ...props }: React.LabelHTMLAttributes<HTMLLabelElement>) {
   return (
-    <label className={cn("mb-1.5 block text-sm font-medium text-slate-300", className)} {...props}>{children}</label>
+    <label className={cn("mb-1.5 block text-[13px] font-medium text-slate-300", className)} {...props}>{children}</label>
   );
 }
 
 export function EmptyState({ icon, title, description }: { icon?: React.ReactNode; title: string; description?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 bg-slate-900/40 px-6 py-12 text-center">
-      {icon && <div className="text-slate-500">{icon}</div>}
-      <p className="text-sm font-medium text-slate-300">{title}</p>
-      {description && <p className="max-w-sm text-xs text-slate-500">{description}</p>}
+    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700/80 bg-slate-900/40 px-6 py-12 text-center">
+      {icon && (
+        <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-full bg-slate-800 text-slate-400">{icon}</div>
+      )}
+      <p className="text-sm font-medium text-slate-200">{title}</p>
+      {description && <p className="max-w-sm text-[13px] leading-relaxed text-slate-500">{description}</p>}
     </div>
   );
 }
@@ -156,10 +205,12 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div className={cn("relative w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl", className)}>
+      <div className={cn("relative w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-pop", className)}>
         <div className="mb-4 flex items-center justify-between">
           {title && <h3 className="text-lg font-semibold text-white">{title}</h3>}
-          <button onClick={onClose} className="text-slate-400 hover:text-white"><XMark /></button>
+          <button onClick={onClose} className="rounded-md p-1 text-slate-400 hover:bg-slate-800 hover:text-white" aria-label="Close">
+            <XMark />
+          </button>
         </div>
         {children}
       </div>

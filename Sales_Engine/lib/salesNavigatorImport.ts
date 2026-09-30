@@ -49,7 +49,7 @@ const NOISE = [
   /^no activity$/i,
   /^(viewed|saved|save|message|more|select|select all|remove|connect|follow)$/i,
   /^(name|account|geography|notes|outreach activity|date added|sort by:?.*)$/i,
-  /^(add to another list|copy list|view in search|lead filters|account filters|saved searches|personas)$/i,
+  /^(add to list|add to another list|copy list|view in search|lead filters|account filters|saved searches|personas)$/i,
   /^(changed jobs|posted on linkedin|share experiences|total results).*$/i,
   /^\d+$/,
   /^(emailed|messaged|inmail sent|replied).*/i,
@@ -137,7 +137,17 @@ function parseBlock(block: string[]): SalesNavLead | null {
   // title; a trailing "City, State, Country" line is always the location.
   if (fields.length < 2) return null;
   const [rawName, ...rest] = fields;
-  const location = rest.length && looksLikeLocation(rest[rest.length - 1]) ? (rest.pop() as string) : "";
+  // The location is the last "City, State, Country" line; anything after it
+  // is row chrome (e.g. "Add to list" buttons) and is dropped.
+  let locationAt = -1;
+  for (let i = rest.length - 1; i >= 0; i--) {
+    if (looksLikeLocation(rest[i])) {
+      locationAt = i;
+      break;
+    }
+  }
+  const location = locationAt >= 0 ? rest[locationAt] : "";
+  if (locationAt >= 0) rest.splice(locationAt);
   const [jobTitle = "", company = ""] = rest.length >= 2 ? rest : ["", rest[0] ?? ""];
 
   const name = tidyName(stripEllipsis(rawName));

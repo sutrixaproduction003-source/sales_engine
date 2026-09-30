@@ -142,7 +142,7 @@ function ResultRow({
  * project's business categories → businesses pinned at their exact location
  * and saved to the pipeline.
  */
-export function MapDiscovery() {
+export function MapDiscovery({ onLeadsChanged }: { onLeadsChanged?: () => void } = {}) {
   const [location, setLocation] = useState("");
   const [projectId, setProjectId] = useState(DEFAULT_PROJECT_ID);
   const [categories, setCategories] = useState<string[]>([]);
@@ -192,8 +192,10 @@ export function MapDiscovery() {
   useEffect(() => {
     if (status === "done" && run?.done && !run.saveError) {
       const ids = run.places.map((p) => p.dbId).filter((id): id is number => typeof id === "number");
+      onLeadsChanged?.(); // new leads saved
       // Then, with HubSpot auto-sync on, the new leads go straight into the CRM.
       draftAll(run.places)
+        .then(() => onLeadsChanged?.()) // drafts moved leads to "awaiting review"
         .then(() => getHubSpotStatus())
         .then((hubspot) => (hubspot.connected && hubspot.autoSync && ids.length ? syncToHubSpot(ids) : null))
         .catch((error) => console.error("HubSpot sync after scrape failed:", error));
@@ -203,6 +205,7 @@ export function MapDiscovery() {
       setContacts({});
       setApollo(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onLeadsChanged is a callback, not a trigger
   }, [status, run, draftAll, resetDrafts]);
 
   const project = getProject(projectId);
@@ -293,20 +296,20 @@ export function MapDiscovery() {
       {/* Search controls */}
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-[14rem] flex-1">
-          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">Location</label>
+          <label className="mb-1.5 block text-[13px] font-medium text-slate-300">Location</label>
           <div className="relative">
-            <MapPin className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
+            <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
             <Input
               value={location}
               onChange={(e) => setLocation(e.target.value)}
               placeholder="City, area or region — e.g. Goa, India"
-              className="pl-8"
+              className="pl-9"
               onKeyDown={(e) => e.key === "Enter" && findLeads()}
             />
           </div>
         </div>
         <div className="w-full sm:w-44">
-          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">Project</label>
+          <label className="mb-1.5 block text-[13px] font-medium text-slate-300">Project</label>
           <Select
             value={projectId}
             onChange={(e) => {
@@ -324,7 +327,7 @@ export function MapDiscovery() {
         </div>
         {needsKeyword && (
           <div className="w-full sm:w-48">
-            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500">
+            <label className="mb-1.5 block text-[13px] font-medium text-slate-300">
               Business type
             </label>
             <Input
@@ -373,12 +376,7 @@ export function MapDiscovery() {
       )}
 
       {/* Status */}
-      <div className="flex min-h-[1.5rem] flex-wrap items-center gap-2 text-sm">
-        {status === "idle" && (
-          <span className="text-slate-400">
-            Enter a location and pick a project — matching businesses are scraped from Google Maps and pinned on the map.
-          </span>
-        )}
+      <div className={cn("flex flex-wrap items-center gap-2 text-sm", status !== "idle" && "min-h-[1.5rem]")}>
         {busy && (
           <span className="flex items-center gap-2 text-sky-300">
             <Loader2 className="h-4 w-4 animate-spin" />

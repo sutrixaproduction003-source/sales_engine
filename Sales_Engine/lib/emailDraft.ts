@@ -84,6 +84,7 @@ function templateDraft(lead: Lead, sender: Sender): EmailDraft {
 }
 
 interface ChatProvider {
+  name: string;
   key: string;
   base: string;
   model: string;
@@ -94,6 +95,7 @@ function chatProviders(): ChatProvider[] {
   const deepseek = getSetting("DEEPSEEK_API_KEY");
   if (deepseek) {
     providers.push({
+      name: "DeepSeek",
       key: deepseek,
       base: (getSetting("DEEPSEEK_BASE_URL") || "https://api.deepseek.com").replace(/\/$/, ""),
       model: getSetting("DEEPSEEK_MODEL") || "deepseek-chat",
@@ -102,12 +104,41 @@ function chatProviders(): ChatProvider[] {
   const groq = getSetting("GROQ_API_KEY");
   if (groq) {
     providers.push({
+      name: "Groq",
       key: groq,
       base: (getSetting("GROQ_BASE_URL") || "https://api.groq.com/openai/v1").replace(/\/$/, ""),
       model: getSetting("GROQ_MODEL") || "llama-3.1-8b-instant",
     });
   }
   return providers;
+}
+
+/**
+ * Live check of each configured AI provider with a tiny request (a few
+ * tokens). → [{ name, ok, detail }]; empty when none is configured.
+ */
+export async function checkAiProviders(): Promise<{ name: string; ok: boolean; detail: string }[]> {
+  return Promise.all(
+    chatProviders().map(async (provider) => {
+      try {
+        const response = await fetch(`${provider.base}/chat/completions`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${provider.key}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: provider.model,
+            max_tokens: 5,
+            messages: [{ role: "user", content: "Reply with the word OK." }],
+          }),
+          signal: AbortSignal.timeout(20000),
+        });
+        const data = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
+        if (!response.ok) return { name: provider.name, ok: false, detail: data.error?.message || `HTTP ${response.status}` };
+        return { name: provider.name, ok: true, detail: `Model ${provider.model} answered` };
+      } catch (error) {
+        return { name: provider.name, ok: false, detail: error instanceof Error ? error.message : String(error) };
+      }
+    })
+  );
 }
 
 /** Parse `{"subject": "...", "body": "..."}`, tolerating code fences. */

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, cn } from "@/components/ui";
+import { Button, Card, PageHeader, cn } from "@/components/ui";
 import { Sparkles, Wand2, PlayCircle, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { apiCall } from "@/lib/api";
 import { fetchLeads } from "@/lib/leadService";
@@ -68,10 +68,11 @@ export default function PersonalizationPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-white">Personalization</h1>
-        <p className="text-sm text-slate-400">Draft a personalized email for every lead with an email address.</p>
-      </div>
+      <PageHeader
+        icon={<Sparkles className="h-[18px] w-[18px]" />}
+        title="Personalization"
+        description="Draft a personalized email for every lead with an email address."
+      />
 
       <Card className="space-y-4">
         <div className="flex items-center gap-3">

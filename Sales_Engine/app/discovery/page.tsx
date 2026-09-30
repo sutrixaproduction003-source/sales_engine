@@ -17,7 +17,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { Button, Card, Input, Label, Select, cn } from "@/components/ui";
+import { Button, Card, EmptyState, Input, Label, PageHeader, Select, cn } from "@/components/ui";
 import { PersonCard } from "@/components/discovery/PersonCard";
 import { PROJECTS, getProject, getProjectRoles } from "@/lib/projects";
 import type { FoundPerson } from "@/lib/people";
@@ -88,13 +88,11 @@ export default function DiscoveryPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold text-white">Discovery — find the person</h1>
-        <p className="text-sm text-slate-400">
-          Enter a business and its location to find who works there — general managers, owners, sales heads — and reach
-          out to them by name.
-        </p>
-      </div>
+      <PageHeader
+        icon={<Globe className="h-[18px] w-[18px]" />}
+        title="Discovery"
+        description="Find the people who work at a business (general managers, owners, sales heads) and reach out to them by name."
+      />
 
       <Card className="space-y-4">
         <div className="grid gap-3 md:grid-cols-[2fr_1.5fr_1fr_auto] md:items-end">
@@ -191,6 +189,14 @@ export default function DiscoveryPage() {
           </p>
         )}
       </Card>
+
+      {status === "idle" && (
+        <EmptyState
+          icon={<UsersRound className="h-5 w-5" />}
+          title="Search for a business to see who works there"
+          description="Type a business name and its city, e.g. “Taj Exotica Resort & Spa” in “Goa”. People with the roles above are shown first, each with a LinkedIn and Sales Navigator link."
+        />
+      )}
 
       {status === "done" && result && (
         <>

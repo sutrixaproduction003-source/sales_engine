@@ -1,6 +1,9 @@
 "use client";
 
-import { X, CheckCircle2, Circle, Zap } from "lucide-react";
+import Link from "next/link";
+import { X, Zap, ClipboardCheck } from "lucide-react";
+import { cn } from "@/components/ui";
+import { initials, timeAgo } from "@/lib/format";
 import { PipelineLead } from "@/lib/types";
 import { StateBadge } from "@/components/StateBadge";
 import { STATE_CONFIGS, LIFECYCLE_STAGES } from "@/lib/states";
@@ -9,7 +12,6 @@ import {
   DrawerContact,
   DrawerCompany,
   DrawerDigitalPresence,
-  DrawerHotelProfile,
   DrawerPersonalization,
   DrawerSocialProof,
 } from "@/components/drawerParts";
@@ -60,31 +62,58 @@ export function LeadDrawer({ lead, onClose }: { lead: PipelineLead | null; onClo
   const intentSignals = parseSignals(lead.intentSignals);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-slate-700 bg-slate-950 shadow-2xl">
-        <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-800 bg-slate-950/95 px-5 py-4 backdrop-blur">
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold text-white">{lead.name || lead.email}</h2>
-              <StateBadge state={lead.status} />
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Lead details">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="relative flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-slate-800 bg-slate-950 shadow-pop">
+        <div className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/95 px-5 py-4 backdrop-blur">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-800 text-sm font-semibold text-slate-200">
+              {initials(lead.name || lead.company)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="truncate text-lg font-semibold text-white">{lead.name || lead.email}</h2>
+                <StateBadge state={lead.status} size="sm" />
+              </div>
+              <p className="truncate text-sm text-slate-400">
+                {[lead.jobTitle, lead.company].filter(Boolean).join(" · ") || "No title or company"}
+              </p>
             </div>
-            <p className="text-sm text-slate-400">
-              {lead.jobTitle || "N/A"} · {lead.company || "N/A"}
-            </p>
+            <button
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          {/* Where this lead is in the pipeline */}
+          <ol className="mt-4 flex items-center gap-1.5">
+            {LIFECYCLE_STAGES.map((stage, i) => {
+              const cfg = STATE_CONFIGS[stage];
+              const done = lead.status !== "REJECTED" && i <= doneUpTo;
+              return (
+                <li key={stage} className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <span className={cn("h-1 rounded-full", done ? cfg.dot : "bg-slate-800")} />
+                  <span className={cn("truncate text-[11px]", done ? "text-slate-300" : "text-slate-600")}>{cfg.label}</span>
+                </li>
+              );
+            })}
+          </ol>
+          {lead.status === "PERSONALIZED" && (
+            <Link
+              href="/review"
+              className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-medium text-amber-200 hover:text-amber-100"
+            >
+              <ClipboardCheck className="h-4 w-4" /> Review this draft in the Review Queue
+            </Link>
+          )}
         </div>
 
         <div className="space-y-5 p-5">
           {/* Scoring Section */}
           {hasScores && (
-            <DrawerSection title={<div className="flex items-center gap-2"><Zap className="h-4 w-4" /> Lead Score</div>}>
+            <DrawerSection title={<span className="flex items-center gap-2"><Zap className="h-3.5 w-3.5" /> Lead score</span>}>
               <div className="space-y-3">
                 <div className="text-center rounded-lg bg-slate-900 px-3 py-2">
                   <p className="text-2xl font-bold text-white">{Math.round(totalScore)}/100</p>
@@ -134,35 +163,15 @@ export function LeadDrawer({ lead, onClose }: { lead: PipelineLead | null; onClo
           )}
 
           {DrawerContact(lead)}
-          {DrawerHotelProfile(lead)}
+          {DrawerPersonalization(lead)}
           {DrawerCompany(lead)}
           {DrawerDigitalPresence(lead)}
           {DrawerSocialProof(lead)}
-          {DrawerPersonalization(lead)}
 
-          <DrawerSection title="Pipeline Lifecycle">
-            <ol className="space-y-1">
-              {LIFECYCLE_STAGES.map((s, i) => {
-                const cfg = STATE_CONFIGS[s];
-                const done = i <= doneUpTo;
-                return (
-                  <li key={s} className="flex items-center gap-2.5 text-sm">
-                    {done ? (
-                      <CheckCircle2 className={`h-4 w-4 ${cfg.text}`} />
-                    ) : (
-                      <Circle className="h-4 w-4 text-slate-600" />
-                    )}
-                    <span className={done ? "text-slate-200" : "text-slate-500"}>{cfg.label}</span>
-                  </li>
-                );
-              })}
-            </ol>
-          </DrawerSection>
-
-          <DrawerSection title="Timestamps">
-            <p className="text-xs text-slate-400">Created: {lead.createdAt || "N/A"}</p>
-            <p className="text-xs text-slate-400">Last activity: {lead.updatedAt || "N/A"}</p>
-          </DrawerSection>
+          <p className="flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-800 pt-4 text-xs text-slate-500">
+            <span title={lead.createdAt ? new Date(lead.createdAt).toLocaleString() : undefined}>Added {timeAgo(lead.createdAt)}</span>
+            <span title={lead.updatedAt ? new Date(lead.updatedAt).toLocaleString() : undefined}>Updated {timeAgo(lead.updatedAt)}</span>
+          </p>
         </div>
       </div>
     </div>
