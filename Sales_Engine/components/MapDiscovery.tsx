@@ -142,7 +142,7 @@ function ResultRow({
  * project's business categories → businesses pinned at their exact location
  * and saved to the pipeline.
  */
-export function MapDiscovery() {
+export function MapDiscovery({ onLeadsChanged }: { onLeadsChanged?: () => void } = {}) {
   const [location, setLocation] = useState("");
   const [projectId, setProjectId] = useState(DEFAULT_PROJECT_ID);
   const [categories, setCategories] = useState<string[]>([]);
@@ -192,8 +192,10 @@ export function MapDiscovery() {
   useEffect(() => {
     if (status === "done" && run?.done && !run.saveError) {
       const ids = run.places.map((p) => p.dbId).filter((id): id is number => typeof id === "number");
+      onLeadsChanged?.(); // new leads saved
       // Then, with HubSpot auto-sync on, the new leads go straight into the CRM.
       draftAll(run.places)
+        .then(() => onLeadsChanged?.()) // drafts moved leads to "awaiting review"
         .then(() => getHubSpotStatus())
         .then((hubspot) => (hubspot.connected && hubspot.autoSync && ids.length ? syncToHubSpot(ids) : null))
         .catch((error) => console.error("HubSpot sync after scrape failed:", error));
@@ -203,6 +205,7 @@ export function MapDiscovery() {
       setContacts({});
       setApollo(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onLeadsChanged is a callback, not a trigger
   }, [status, run, draftAll, resetDrafts]);
 
   const project = getProject(projectId);

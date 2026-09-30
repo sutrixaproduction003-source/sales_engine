@@ -82,7 +82,7 @@ export default function OverviewPage() {
           title="Find leads on the map"
           description="Pick a location and a project. Matching businesses are found on Google Maps, pinned at their exact address and saved to your pipeline."
         />
-        <MapDiscovery />
+        <MapDiscovery onLeadsChanged={refreshAll} />
       </Card>
     </div>
   );

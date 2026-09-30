@@ -17,9 +17,22 @@ const { createError } = require('../utils/errors');
 
 const USER_AGENT = 'SalesEngine/1.0 (lead discovery; https://github.com/sutrixaproduction003-source/sales_engine)';
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
-const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+/** Public Overpass mirrors, asked in parallel (they are often slow or overloaded). */
+const OVERPASS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+];
+/** Pauses before retrying when every mirror failed (overloaded mirrors recover quickly). */
+const OVERPASS_RETRY_PAUSES_MS = [2000, 6000];
 /** Keep queries city-sized: larger areas are shrunk around their centre. */
 const MAX_SPAN_DEGREES = 1.2;
+/**
+ * …and small ones (a village or neighbourhood, e.g. "Bambolim") are widened to
+ * ~20 km, so a business just outside the official boundary is still found.
+ */
+const MIN_SPAN_DEGREES = 0.18;
 
 /** Search term → OSM tags. First matching rule wins; unmatched terms search by name. */
 const TAG_RULES = [
@@ -99,6 +112,9 @@ async function geocode(location) {
   const half = MAX_SPAN_DEGREES / 2;
   if (north - south > MAX_SPAN_DEGREES) [south, north] = [lat - half, lat + half];
   if (east - west > MAX_SPAN_DEGREES) [west, east] = [lon - half, lon + half];
+  const minHalf = MIN_SPAN_DEGREES / 2;
+  if (north - south < MIN_SPAN_DEGREES) [south, north] = [lat - minHalf, lat + minHalf];
+  if (east - west < MIN_SPAN_DEGREES) [west, east] = [lon - minHalf, lon + minHalf];
 
   const address = hit.address || {};
   const place = {
@@ -132,24 +148,45 @@ function selectorsFor(term, bbox) {
   return { label: null, selectors: [`nwr["name"~"${escapeRegex(term)}",i]${box};`] };
 }
 
+/** Wait per mirror before giving up on it; the queries are small (a city). */
+const OVERPASS_TIMEOUT_MS = 25000;
+
+/** One mirror; rejects on error, a non-JSON answer, or when another mirror won. */
+async function askMirror(endpoint, query, signal) {
+  const response = await axios.request({
+    method: 'post',
+    url: endpoint,
+    data: `data=${encodeURIComponent(query)}`,
+    headers: { 'User-Agent': USER_AGENT, 'Content-Type': 'application/x-www-form-urlencoded' },
+    timeout: OVERPASS_TIMEOUT_MS,
+    signal,
+  });
+  if (!Array.isArray(response.data?.elements)) throw new Error('mirror returned no results');
+  // A busy mirror answers "200 OK" with no elements and a runtime-error remark;
+  // that isn't "nothing found", so let another mirror (or a retry) answer.
+  if (/runtime error|too busy|timed out|out of memory/i.test(String(response.data.remark || ''))) {
+    throw new Error(`mirror busy: ${String(response.data.remark).slice(0, 120)}`);
+  }
+  return response.data.elements;
+}
+
+/**
+ * Run a query on the public Overpass mirrors at the same time and take the
+ * first answer (the others are cancelled). Public mirrors are often slow or
+ * overloaded, so asking them one after another could take minutes. If every
+ * mirror fails, try again after a pause (twice).
+ */
 async function overpass(query) {
   let lastError;
-  for (const endpoint of OVERPASS) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const response = await axios.request({
-          method: 'post',
-          url: endpoint,
-          data: `data=${encodeURIComponent(query)}`,
-          headers: { 'User-Agent': USER_AGENT, 'Content-Type': 'application/x-www-form-urlencoded' },
-          timeout: 45000,
-        });
-        return Array.isArray(response.data?.elements) ? response.data.elements : [];
-      } catch (error) {
-        lastError = error;
-        if (error.response?.status === 429 || error.response?.status === 504) await sleep(2000 * (attempt + 1));
-        else break;
-      }
+  for (let round = 0; round <= OVERPASS_RETRY_PAUSES_MS.length; round++) {
+    const controller = new AbortController();
+    try {
+      const elements = await Promise.any(OVERPASS.map((endpoint) => askMirror(endpoint, query, controller.signal)));
+      controller.abort();
+      return elements;
+    } catch (error) {
+      lastError = error.errors?.find((e) => e?.response?.status) ?? error.errors?.[0] ?? error;
+      if (round < OVERPASS_RETRY_PAUSES_MS.length) await sleep(OVERPASS_RETRY_PAUSES_MS[round]);
     }
   }
   throw createError(`OpenStreetMap search failed: ${lastError?.message || 'unavailable'}`, 'OSM_FAILED', 502);
@@ -243,6 +280,27 @@ async function searchOsm({ location, searchTerms, perTerm = 20 }, emailPicker) {
  * Look up specific businesses ("Lucas TVS Ltd, Chennai"): one best match per
  * query, searched by name in the query's location. `searchTerm` is the query.
  */
+/** Words that don't identify a business ("Lucas TVS Ltd" → "Lucas TVS"). */
+const FILLER = /^(ltd|limited|pvt|private|inc|llp|co|corp|company|the|and|&|of)\.?$/i;
+const wordsOf = (text) => clean(text).toLowerCase().split(/[^a-z0-9]+/i).filter((w) => w && !FILLER.test(w));
+
+/**
+ * The best element for a business name: the one sharing the most words with
+ * it (OSM often has a shorter name, e.g. "Grand Hyatt" for "Grand Hyatt Goa").
+ */
+function bestMatch(elements, name) {
+  const wanted = wordsOf(name);
+  let best = null;
+  let bestScore = 0;
+  for (const el of elements) {
+    const have = new Set(wordsOf(el.tags?.name));
+    const score = wanted.filter((w) => have.has(w)).length;
+    if (score > bestScore) [best, bestScore] = [el, score];
+  }
+  // At least two words in common (or the whole name when it is one word).
+  return bestScore >= Math.min(2, wanted.length) ? best : null;
+}
+
 async function lookupOsm(queries, emailPicker) {
   const places = [];
   for (const query of queries) {
@@ -252,11 +310,13 @@ async function lookupOsm(queries, emailPicker) {
     if (!location) continue;
     try {
       const area = await geocode(location);
-      // Distinctive words only ("Lucas TVS Ltd" → "Lucas TVS"): OSM names rarely carry "Ltd".
-      const words = name.split(/\s+/).filter((w) => !/^(ltd|limited|pvt|private|inc|llp|co|the|and|&)\.?$/i.test(w));
-      const pattern = escapeRegex(words.slice(0, 3).join(' ')) || escapeRegex(name);
-      const elements = await overpass(`[out:json][timeout:30];nwr["name"~"${pattern}",i](${area.bbox.join(',')});out center tags 5;`);
-      const place = elements.map((el) => normalizeElement(el, { searchTerm: query, label: null, area })).find(Boolean);
+      // The first three distinctive words, then the first two: OSM names are often shorter.
+      const words = name.split(/\s+/).filter((w) => !FILLER.test(w));
+      const candidates = [...new Set([words.slice(0, 3), words.slice(0, 2)].map((w) => w.join(' ')).filter(Boolean))];
+      const pattern = (candidates.length ? candidates : [name]).map(escapeRegex).join('|');
+      const elements = await overpass(`[out:json][timeout:30];nwr["name"~"${pattern}",i](${area.bbox.join(',')});out center tags 20;`);
+      const match = bestMatch(elements, name);
+      const place = match && normalizeElement(match, { searchTerm: query, label: null, area });
       if (place) places.push(emailPicker(place));
     } catch (error) {
       if (error.code !== 'LOCATION_NOT_FOUND') throw error;
