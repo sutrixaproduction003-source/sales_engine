@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Button, Card, cn } from "@/components/ui";
-import { UploadCloud } from "lucide-react";
+import { Button, Card, EmptyState, PageHeader, cn } from "@/components/ui";
+import { FileUp, Mail, Phone, UploadCloud, Users } from "lucide-react";
+import { domainOf, initials, sourceLabel, timeAgo } from "@/lib/format";
 import { refreshLeads, useLeadsStore } from "@/lib/leadStore";
 import { uploadCsv } from "@/lib/leadService";
 import { StateBadge } from "@/components/StateBadge";
@@ -79,120 +80,148 @@ export function LeadsHub() {
       .finally(() => setUploading(false));
   };
 
+  const th = "sticky top-0 z-10 bg-slate-900 px-3 py-2.5 text-left text-xs font-medium text-slate-400";
+
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div>
-          <h1 className="text-xl font-semibold text-white">Leads Hub</h1>
-          <p className="text-sm text-slate-400">
-            {leads.length} total leads &middot; {filtered.length} shown
-          </p>
-        </div>
-        <div className="flex items-center gap-2 sm:ml-auto">
-          <Link
-            href="/import"
-            className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-200 hover:bg-sky-500/20"
-          >
-            <UploadCloud className="h-4 w-4" /> Import from Sales Navigator
-          </Link>
-          <Button variant="secondary" loading={uploading} onClick={() => fileRef.current?.click()}>
-            <UploadCloud className="h-4 w-4" /> Import CSV
-          </Button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(e) => onUpload(e.target.files?.[0])}
-          />
-        </div>
-      </div>
-
-      <LeadActions leads={filtered} />
+      <PageHeader
+        title="Leads Hub"
+        description={
+          <>
+            <span className="tabular text-slate-300">{leads.length.toLocaleString()}</span> leads
+            {filtered.length !== leads.length && (
+              <>
+                {" "}· <span className="tabular text-slate-300">{filtered.length.toLocaleString()}</span> shown
+              </>
+            )}
+          </>
+        }
+        actions={
+          <>
+            <Link
+              href="/import"
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm ring-1 ring-inset ring-white/10 hover:bg-indigo-500"
+            >
+              <UploadCloud className="h-4 w-4" /> Import from Sales Navigator
+            </Link>
+            <Button variant="secondary" loading={uploading} onClick={() => fileRef.current?.click()}>
+              <FileUp className="h-4 w-4" /> Import CSV
+            </Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => onUpload(e.target.files?.[0])}
+            />
+          </>
+        }
+      />
 
       {uploadMsg && (
-        <p className={cn("text-sm", uploadMsg.ok ? "text-emerald-400" : "text-rose-400")}>{uploadMsg.text}</p>
+        <p className={cn("text-sm", uploadMsg.ok ? "text-emerald-300" : "text-rose-300")}>{uploadMsg.text}</p>
       )}
 
-      <Card className="!p-3">
-        <FilterBar filters={filters} onChange={setFilters} sources={sources} />
-      </Card>
+      <Card className="overflow-hidden !p-0">
+        <div className="space-y-3 border-b border-slate-800 p-3 sm:p-4">
+          <FilterBar filters={filters} onChange={setFilters} sources={sources} />
+          <LeadActions leads={filtered} />
+        </div>
 
-      <Card className="overflow-x-auto !p-0">
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-slate-800 text-xs uppercase text-slate-400">
-              <th className="px-3 py-3">Name</th>
-              <th className="hidden px-3 py-3 md:table-cell">Job Title</th>
-              <th className="px-3 py-3">Company</th>
-              <th className="hidden px-3 py-3 lg:table-cell">Website</th>
-              <th className="hidden px-3 py-3 xl:table-cell">Email</th>
-              <th className="hidden px-3 py-3 lg:table-cell">Source</th>
-              <th className="hidden px-3 py-3 sm:table-cell">Lead Score</th>
-              <th className="hidden px-3 py-3 lg:table-cell">Data Quality</th>
-              <th className="px-3 py-3">State</th>
-              <th className="hidden px-3 py-3 xl:table-cell">Last Activity</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
-              <tr>
-                <td colSpan={10} className="px-3 py-12 text-center text-sm text-slate-400">
-                  Loading leads...
-                </td>
+        <div className="min-h-[240px] overflow-auto lg:max-h-[calc(100vh-17rem)]">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-slate-800">
+                <th className={th}>Person</th>
+                <th className={th}>Company</th>
+                <th className={cn(th, "hidden lg:table-cell")}>Contact</th>
+                <th className={cn(th, "hidden md:table-cell")}>Source</th>
+                <th className={th}>State</th>
+                <th className={cn(th, "hidden xl:table-cell")}>Updated</th>
               </tr>
-            )}
-            {!loading && error && (
-              <tr>
-                <td colSpan={10} className="px-3 py-12 text-center">
-                  <p className="text-sm text-rose-400">{error}</p>
-                  <Button variant="secondary" className="mt-3" onClick={() => refreshLeads()}>
-                    Retry
-                  </Button>
-                </td>
-              </tr>
-            )}
-            {!loading && !error && filtered.map((lead) => (
-              <tr
-                key={lead.id}
-                className="cursor-pointer border-b border-slate-800/60 transition last:border-0 hover:bg-slate-900/50"
-                onClick={() => setDrawerLead(lead)}
-              >
-                <td className="px-3 py-2.5">
-                  <span className="font-medium text-slate-100">{lead.name}</span>
-                </td>
-                <td className="hidden px-3 py-2.5 text-slate-300 md:table-cell">{lead.jobTitle || "N/A"}</td>
-                <td className="px-3 py-2.5 text-slate-300">{lead.company || "N/A"}</td>
-                <td className="hidden max-w-[200px] truncate px-3 py-2.5 text-slate-400 lg:table-cell">
-                  {lead.website || "N/A"}
-                </td>
-                <td className="hidden px-3 py-2.5 text-slate-400 xl:table-cell">{lead.email}</td>
-                <td className="hidden px-3 py-2.5 lg:table-cell">
-                  <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">
-                    {lead.source || "N/A"}
-                  </span>
-                </td>
-                <td className="hidden px-3 py-2.5 text-xs text-slate-500 sm:table-cell">N/A</td>
-                <td className="hidden px-3 py-2.5 text-xs text-slate-500 lg:table-cell">N/A</td>
-                <td className="px-3 py-2.5">
-                  <StateBadge state={lead.status} size="sm" />
-                </td>
-                <td className="hidden px-3 py-2.5 text-xs text-slate-500 xl:table-cell">
-                  {lead.updatedAt ? new Date(lead.updatedAt).toLocaleString() : "N/A"}
-                </td>
-              </tr>
-            ))}
-            {!loading && !error && filtered.length === 0 && (
-              <tr>
-                <td colSpan={10} className="px-3 py-12 text-center text-sm text-slate-500">
-                  {leads.length === 0
-                    ? "No leads yet — import a CSV or discover leads from the Overview map."
-                    : "No leads match your filters."}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-800/70">
+              {loading &&
+                Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i}>
+                    <td colSpan={6} className="px-3 py-3">
+                      <div className="h-8 animate-pulse rounded-md bg-slate-800/50" />
+                    </td>
+                  </tr>
+                ))}
+              {!loading && error && (
+                <tr>
+                  <td colSpan={6} className="px-3 py-12 text-center">
+                    <p className="text-sm text-rose-300">{error}</p>
+                    <Button variant="secondary" className="mt-3" onClick={() => refreshLeads()}>
+                      Retry
+                    </Button>
+                  </td>
+                </tr>
+              )}
+              {!loading &&
+                !error &&
+                filtered.map((lead) => {
+                  const domain = domainOf(lead.website);
+                  return (
+                    <tr
+                      key={lead.id}
+                      className="cursor-pointer transition-colors hover:bg-slate-850"
+                      onClick={() => setDrawerLead(lead)}
+                    >
+                      <td className="max-w-[16rem] px-3 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-800 text-[11px] font-semibold text-slate-300">
+                            {initials(lead.name)}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-slate-100">{lead.name}</p>
+                            <p className="truncate text-xs text-slate-500">{lead.jobTitle || "—"}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="max-w-[14rem] px-3 py-2.5">
+                        <p className="truncate text-slate-200">{lead.company || "—"}</p>
+                        {domain && <p className="truncate text-xs text-slate-500">{domain}</p>}
+                      </td>
+                      <td className="hidden max-w-[16rem] px-3 py-2.5 lg:table-cell">
+                        <p className={cn("flex items-center gap-1.5 truncate text-xs", lead.email ? "text-slate-300" : "text-slate-600")}>
+                          <Mail className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{lead.email || "No email"}</span>
+                        </p>
+                        <p className={cn("mt-0.5 flex items-center gap-1.5 truncate text-xs", lead.phone ? "text-slate-300" : "text-slate-600")}>
+                          <Phone className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{lead.phone || (lead.phoneStatus === "pending" ? "Mobile coming…" : "No phone")}</span>
+                        </p>
+                      </td>
+                      <td className="hidden whitespace-nowrap px-3 py-2.5 text-xs text-slate-400 md:table-cell">
+                        {sourceLabel(lead.source)}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <StateBadge state={lead.status} size="sm" />
+                      </td>
+                      <td className="tabular hidden whitespace-nowrap px-3 py-2.5 text-xs text-slate-500 xl:table-cell">
+                        {timeAgo(lead.updatedAt)}
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+          {!loading && !error && filtered.length === 0 && (
+            <div className="p-6">
+              <EmptyState
+                icon={<Users className="h-5 w-5" />}
+                title={leads.length === 0 ? "No leads yet" : "No leads match your filters"}
+                description={
+                  leads.length === 0
+                    ? "Find businesses on the Overview map, import a Sales Navigator list, or upload a CSV."
+                    : "Try clearing a filter or searching for something else."
+                }
+              />
+            </div>
+          )}
+        </div>
       </Card>
 
       <LeadDrawer lead={drawerLead} onClose={() => setDrawerLead(null)} />

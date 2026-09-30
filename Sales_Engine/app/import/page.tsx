@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, ClipboardPaste, Loader2, Trash2, UploadCloud } from "lucide-react";
-import { Button, Card, Label, Select, cn } from "@/components/ui";
+import { Button, Card, Label, PageHeader, Select, cn } from "@/components/ui";
 import { apiCall } from "@/lib/api";
 import { apolloConfigured, findContacts } from "@/lib/apolloClient";
 import { getHubSpotStatus, syncToHubSpot, type HubSpotStatus } from "@/lib/hubspotClient";
@@ -217,12 +217,11 @@ export default function SalesNavigatorImportPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold text-white">Import from Sales Navigator</h1>
-        <p className="text-sm text-slate-400">
-          Copy a lead list page in Sales Navigator and paste it here — the leads go straight into your CRM.
-        </p>
-      </div>
+      <PageHeader
+        icon={<UploadCloud className="h-[18px] w-[18px]" />}
+        title="Sales Navigator Import"
+        description="Copy a lead list page in Sales Navigator and paste it here. The leads go straight into your pipeline."
+      />
 
       <Card className="space-y-3">
         <ol className="grid gap-2 text-sm text-slate-300 sm:grid-cols-3">

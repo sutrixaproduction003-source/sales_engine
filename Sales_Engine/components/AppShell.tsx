@@ -20,7 +20,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar onMenu={() => setMenuOpen(true)} />
         <StorageNotice />
-        <main className="min-w-0 flex-1 overflow-auto p-3 sm:p-4 lg:p-6">{children}</main>
+        <main className="min-w-0 flex-1 overflow-auto px-3 py-4 sm:px-6 sm:py-6 lg:px-8">
+          <div className="mx-auto w-full max-w-[1400px]">{children}</div>
+        </main>
       </div>
     </div>
   );

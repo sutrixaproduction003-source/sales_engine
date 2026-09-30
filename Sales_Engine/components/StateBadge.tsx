@@ -40,12 +40,10 @@ export function StateBadge({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border font-medium ${config.bg} ${config.border} ${config.text} ${sizeStyles[size]} ${className}`}
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border font-medium ${config.bg} ${config.border} ${config.text} ${sizeStyles[size]} ${className}`}
     >
       <span className={`inline-block shrink-0 rounded-full ${config.dot} ${size === "sm" ? "h-1.5 w-1.5" : "h-2 w-2"}`} />
-      {showIcon && IconComponent && (
-        <IconComponent className={`${iconSizes[size]} shrink-0 opacity-80`} />
-      )}
+      {showIcon && IconComponent && size === "lg" && <IconComponent className={`${iconSizes[size]} shrink-0 opacity-80`} />}
       <span>{config.label}</span>
     </span>
   );

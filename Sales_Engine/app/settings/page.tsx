@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { CheckCircle2, ExternalLink, KeyRound, Mail, Send, UserRound } from "lucide-react";
-import { Badge, Button, Card, Input, Label } from "@/components/ui";
+import { CheckCircle2, ExternalLink, KeyRound, Mail, Send, Settings as SettingsIcon, UserRound } from "lucide-react";
+import { Badge, Button, Card, Input, Label, PageHeader } from "@/components/ui";
 import { apiCall } from "@/lib/api";
 import { HubSpotSettings } from "@/components/settings/HubSpotSettings";
 import { StorageSettings } from "@/components/settings/StorageSettings";
@@ -109,12 +109,11 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-white">Settings</h1>
-        <p className="text-sm text-slate-400">
-          Stored in .env.local on this machine. Secrets are never shown again after saving.
-        </p>
-      </div>
+      <PageHeader
+        icon={<SettingsIcon className="h-[18px] w-[18px]" />}
+        title="Settings"
+        description="Saved in .env.local where the app runs on your computer; on Vercel, set these as environment variables. Secrets are never shown again after saving."
+      />
 
       <Section
         icon={<Mail className="h-4 w-4" />}

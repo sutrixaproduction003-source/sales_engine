@@ -22,16 +22,17 @@ const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services";
 
 /** Key-free basemaps. Each is one or more tile layers (base + optional labels). */
 const BASEMAPS: { name: string; layers: { url: string; attribution?: string }[] }[] = [
-  {
-    name: "Streets",
-    layers: [{ url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", attribution: OSM_ATTRIBUTION }],
-  },
+  // Dark first: the default, matching the app.
   {
     name: "Dark",
     layers: [
       { url: `${ESRI}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`, attribution: "Tiles &copy; Esri" },
       { url: `${ESRI}/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}` },
     ],
+  },
+  {
+    name: "Streets",
+    layers: [{ url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", attribution: OSM_ATTRIBUTION }],
   },
   {
     name: "Satellite",
@@ -246,7 +247,7 @@ export default function LeadMap({ places, selectedId, hoveredId = null, onSelect
   return (
     <div
       className={cn(
-        "relative overflow-hidden border border-slate-800 bg-[#0b1120]",
+        "relative overflow-hidden border border-slate-800 bg-[#0e1117]",
         fullscreen ? "fixed inset-0 z-[2000] rounded-none" : "rounded-xl",
         !fullscreen && className
       )}

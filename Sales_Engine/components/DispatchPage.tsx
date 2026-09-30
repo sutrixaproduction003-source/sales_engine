@@ -1,41 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Send, MailCheck, Clock, Inbox, AlertTriangle } from "lucide-react";
-import { Card, Button, Modal, cn } from "@/components/ui";
+import { Send, AlertTriangle, Users, Inbox, MailCheck } from "lucide-react";
+import { Card, Button, Modal, PageHeader } from "@/components/ui";
 import { fetchLeads } from "@/lib/leadService";
 import { PipelineLead } from "@/lib/types";
+import { StatTile } from "@/components/overviewCards";
 
 /**
  * Dispatch — Email Outbox: emails that a reviewer approved in the Review
  * Queue and that were sent through Gmail (status SYNCED). Read-only.
  */
-
-function KpiCard({
-  label,
-  value,
-  icon: Icon,
-  color,
-  bg,
-}: {
-  label: string;
-  value: number;
-  icon: typeof Send;
-  color: string;
-  bg: string;
-}) {
-  return (
-    <Card className="flex items-center gap-3 p-4">
-      <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", bg, color)}>
-        <Icon className="h-4 w-4" />
-      </span>
-      <div>
-        <p className={cn("text-xl font-semibold", color)}>{value}</p>
-        <p className="text-xs text-slate-500">{label}</p>
-      </div>
-    </Card>
-  );
-}
 
 export function DispatchPageContent() {
   const [leads, setLeads] = useState<PipelineLead[] | null>(null);
@@ -60,24 +35,17 @@ export function DispatchPageContent() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-500/15 text-indigo-400">
-          <Send className="h-5 w-5" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-semibold text-white">Dispatch — Email Outbox</h1>
-          <p className="text-sm text-slate-400">
-            Emails you approved in the Review Queue and sent through Gmail. Nothing is sent automatically.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Send className="h-[18px] w-[18px]" />}
+        title="Dispatch"
+        description="Emails you approved in the Review Queue and sent through Gmail. Nothing is sent automatically."
+      />
 
       {/* KPI cards — real pipeline counts */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <KpiCard label="Sent via Gmail" value={sent.length} icon={MailCheck} color="text-sky-400" bg="bg-sky-500/15" />
-        <KpiCard label="Waiting for your review" value={awaitingReview.length} icon={Clock} color="text-indigo-400" bg="bg-indigo-500/15" />
-        <KpiCard label="Pipeline total" value={leads?.length ?? 0} icon={Inbox} color="text-slate-300" bg="bg-slate-800" />
+        <StatTile label="Sent via Gmail" value={sent.length} state="SYNCED" hint="Approved and emailed" />
+        <StatTile label="Awaiting review" value={awaitingReview.length} state="PERSONALIZED" href="/review" hint="Drafted, needs approval" />
+        <StatTile label="Pipeline total" value={leads?.length ?? 0} icon={Users} href="/leads" hint="Every lead" />
       </div>
 
       {/* Table */}
